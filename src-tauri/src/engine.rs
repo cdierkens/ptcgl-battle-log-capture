@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
@@ -66,7 +68,7 @@ const REARM_CLEAR_POLLS: u32 = 3;
 /// "Battle Log" control on the results screen and click it to open the log
 /// panel, then recognize the "Export" button in the panel and click it to copy
 /// the log to the clipboard.
-pub fn run(app: AppHandle) {
+pub fn run(app: AppHandle, running: Arc<AtomicBool>, state_cell: Arc<Mutex<CaptureState>>) {
     let settings = settings::load();
     let output_dir = PathBuf::from(&settings.output_dir);
 
@@ -91,7 +93,33 @@ pub fn run(app: AppHandle) {
     let mut tab_click: Option<(i32, i32)> = None;
     let mut tab_reclicks: u32 = 0;
 
+    let mut was_running = running.load(Ordering::Relaxed);
+
     loop {
+        // Publish the current state every iteration so the UI can always fetch
+        // the latest capture state on mount, even if it missed the boot-time
+        // event. Cheap write; does not affect capture timing.
+        if let Ok(mut cell) = state_cell.lock() {
+            *cell = state;
+        }
+
+        // Start/stop gate. When stopped, idle: no window lookup, no capture,
+        // no focus activation, no clipboard poll. Single long-lived thread, so
+        // the timing-sensitive capture path is untouched when running.
+        let is_running = running.load(Ordering::Relaxed);
+        if !is_running {
+            if was_running {
+                emit_status(&app, "Stopped", "Capture stopped", None);
+                was_running = false;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+            continue;
+        }
+        if !was_running {
+            emit_status(&app, "Running", "Capture started", None);
+            was_running = true;
+        }
+
         if !screen_access.is_authorized() {
             if !permission_requested {
                 screen_access.request();
@@ -491,6 +519,14 @@ fn advance(app: &AppHandle, state: &mut CaptureState, event: CaptureEvent, messa
     }
     if let Err(e) = app.emit(CAPTURE_STATUS_EVENT, &status) {
         error!("failed to emit capture-status event: {e}");
+    }
+}
+
+/// Emit a `capture-status` event without a state-machine transition.
+fn emit_status(app: &AppHandle, state: &str, message: &str, detail: Option<String>) {
+    let status = CaptureStatus::custom(state, message, detail);
+    if let Err(e) = app.emit(CAPTURE_STATUS_EVENT, status) {
+        warn!("failed to emit capture status: {e}");
     }
 }
 

@@ -3,36 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PTCGL Tracker</title>
-    <style>
-      #capture-log {
-        max-height: 240px;
-        overflow-y: auto;
-        font-family: monospace;
-        font-size: 12px;
-        border: 1px solid #ccc;
-        padding: 8px;
-      }
-    </style>
+    <title>Battle Log Capture</title>
   </head>
   <body>
-    <main id="app">
-      <h1>PTCGL Tracker</h1>
-      <form id="settings-form">
-        <div>
-          <label for="player-name">Player name</label>
-          <input id="player-name" name="playerName" type="text" />
-        </div>
-        <div>
-          <label for="output-dir">Output directory</label>
-          <input id="output-dir" name="outputDir" type="text" />
-        </div>
-        <button type="submit">Save settings</button>
-      </form>
-      <p id="status"></p>
-      <h2>Capture log</h2>
-      <div id="capture-log"></div>
-    </main>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -21,6 +21,17 @@ impl CaptureStatus {
             ts: now_millis(),
         }
     }
+
+    /// A status emit that is not a state-machine transition (e.g. capture
+    /// started/stopped), for events the UI needs but the engine state does not model.
+    pub fn custom(state: &str, message: impl Into<String>, detail: Option<String>) -> Self {
+        Self {
+            state: state.to_string(),
+            message: message.into(),
+            detail,
+            ts: now_millis(),
+        }
+    }
 }
 
 fn now_millis() -> u64 {
