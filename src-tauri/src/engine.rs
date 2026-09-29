@@ -7,23 +7,27 @@ use tauri::{AppHandle, Emitter};
 use tracing::{debug, error, info, warn};
 
 use crate::buttons::{
-    battle_log_needles, battle_log_region, close_icon, confirm_needles, drawer_title_region,
-    export_copied_needles, export_icon, RelativePoint,
+    battle_log_needles, battle_log_region, close_icon, confirm_needles, continue_needles,
+    drawer_title_region, export_copied_needles, export_icon, export_icon_search_region,
+    RelativePoint,
 };
+use crate::calibration;
 use crate::coords::{crop_frame, frame_to_point_scale, rect_center, window_to_screen, Point};
 use crate::dedupe::SeenHashes;
 use crate::events::CaptureStatus;
 use crate::gate::looks_like_battle_log;
+use crate::mode::{self, Mode};
 use crate::platform::clipboard::ArboardClipboard;
 use crate::platform::frame::XcapFrameCapturer;
 use crate::platform::input::{EnigoInput, MacWindowActivator};
 use crate::platform::ocr::VisionTextRecognizer;
 use crate::platform::permission::ScreenRecordingAccess;
 use crate::platform::store::FsLogStore;
+use crate::platform::template::ImageprocTemplateMatcher;
 use crate::platform::window::XcapWindowProvider;
 use crate::ports::{
     ClipboardReader, Frame, FrameCapturer, InputController, LogStore, ScreenCaptureAccess, TextMatch,
-    TextRecognizer, WindowActivator, WindowInfo, WindowProvider,
+    TextRecognizer, WindowActivator, WindowInfo, WindowProvider, TemplateMatcher,
 };
 use crate::settings;
 use crate::state::{next, CaptureEvent, CaptureState};
@@ -61,8 +65,11 @@ const DIALOG_SETTLE_MS: u64 = 500;
 /// Grace period after a capture before we start looking for the results screen
 /// to clear, so the drawer dismissal animation is not read as "screen gone".
 const REARM_DELAY_MS: u64 = 1500;
-/// Consecutive polls that must show no Battle Log tab before re-arming.
+/// Consecutive polls that must show no Continue button before re-arming.
 const REARM_CLEAR_POLLS: u32 = 3;
+/// Grace between Continue clicks while auto-dismissing the results screen, so a
+/// missed click is retried without double-clicking the button in transition.
+const CONTINUE_CLICK_GAP_MS: u64 = 1000;
 
 /// Background capture loop. Two-stage OCR flow: recognize the localized
 /// "Battle Log" control on the results screen and click it to open the log
@@ -81,6 +88,15 @@ pub fn run(app: AppHandle, running: Arc<AtomicBool>, state_cell: Arc<Mutex<Captu
     let store = FsLogStore::new(output_dir.clone());
     let mut seen = SeenHashes::new();
 
+    // Discover mode is a separate, side-effect-free-of-capture loop: it only
+    // watches the screen and snapshots the Export-icon reference template.
+    if mode::load() == Mode::Discover {
+        run_discover(&app, &running, &window_provider, &frame_capturer, &text_recognizer);
+        return;
+    }
+
+    let template_matcher = ImageprocTemplateMatcher;
+
     let screen_access = ScreenRecordingAccess;
     let mut permission_requested = false;
 
@@ -88,6 +104,8 @@ pub fn run(app: AppHandle, running: Arc<AtomicBool>, state_cell: Arc<Mutex<Captu
     let mut step_at: Option<Instant> = None;
     let mut results_clear_polls: u32 = 0;
     let mut watch_polls: u32 = 0;
+    // When we last clicked Continue to auto-dismiss the results screen.
+    let mut last_continue_click: Option<Instant> = None;
     // Screen coords of the Battle Log tab click, kept so we can re-click it
     // while waiting for the drawer to open.
     let mut tab_click: Option<(i32, i32)> = None;
@@ -197,53 +215,83 @@ pub fn run(app: AppHandle, running: Arc<AtomicBool>, state_cell: Arc<Mutex<Captu
                 }
             }
             CaptureState::PanelOpened => {
-                // Wait for the drawer to actually open instead of a fixed delay.
-                // Opening the drawer reveals its own "Battle Log" title at the
-                // top of the window (a different label from the results-screen
-                // tab at the bottom, which is what we clicked). If that title
-                // hasn't appeared yet, re-click the tab: the first click often
-                // lands before the drawer is interactive, which is why the
-                // export used to need a second full attempt.
-                let open = crop_frame(&frame, drawer_title_region())
-                    .map(|c| !text_recognizer.find_text(&c.frame, &battle_log_needles()).is_empty())
-                    .unwrap_or(false);
-                let out_of_retries = tab_reclicks >= DRAWER_MAX_RECLICKS;
-                if open || out_of_retries {
-                    if !open {
-                        warn!(reclicks = tab_reclicks, "drawer never confirmed open; clicking Export anyway");
-                    } else {
-                        info!("Battle Log drawer open (title detected)");
-                    }
-                    // Clear the clipboard *before* Export so that whatever
-                    // lands on it afterwards is unambiguously this match's
-                    // log. Otherwise a leftover log from a previous match can
-                    // sit on the clipboard, and if the Export click fails to
-                    // copy, the engine reads that stale log, sees it as
-                    // "already captured", and falsely reports success while
-                    // saving nothing.
+                // Fast path: a calibrated Export-icon template both confirms the
+                // drawer is open and yields the click point in one step, skipping
+                // the OCR-title confirmation and re-click dance. Falls back to the
+                // OCR-title path when no template is calibrated or the match misses.
+                let scale = frame_to_point_scale(frame.width, window.width);
+                let template_match = calibration::load_export_icon().and_then(|cal| {
+                    template_matcher.find(
+                        &frame,
+                        &cal.template,
+                        cal.scale,
+                        scale,
+                        Some(export_icon_search_region()),
+                    )
+                });
+                if let Some(center) = template_match {
+                    let (cx, cy) = frame_point_to_screen(&window, &frame, center);
+                    info!(click_x = cx, click_y = cy, "template-matched Export icon");
                     if clipboard.clear() {
                         info!("cleared clipboard before Export");
                     } else {
                         warn!("failed to clear clipboard before Export");
                     }
-                    let (cx, cy) = relative_click(&window, &export_icon());
-                    info!(label = "Export icon", click_x = cx, click_y = cy, "clicking fixed-position Export icon");
-                    advance(&app, &mut state, CaptureEvent::ExportFound, "Export icon targeted", Some(format!("({}, {})", cx, cy)));
+                    advance(&app, &mut state, CaptureEvent::ExportFound, "Export icon matched", Some(format!("({}, {})", cx, cy)));
                     tab_click = None;
                     if click_at(&activator, &input, cx, cy).is_ok() {
                         advance(&app, &mut state, CaptureEvent::ExportClicked, "Export clicked", Some(format!("({}, {})", cx, cy)));
                         step_at = Some(Instant::now());
                     }
-                } else if let (Some(t), Some((tx, ty))) = (step_at, tab_click) {
-                    // Only re-click when the drawer is *believed closed* (its
-                    // title is absent). The Battle Log tab is a toggle — a
-                    // blind re-click would close an already-open drawer — so we
-                    // gate every tab click on the drawer being closed.
-                    if t.elapsed() >= Duration::from_millis(DRAWER_RETRY_MS) {
-                        tab_reclicks += 1;
-                        info!(attempt = tab_reclicks, "drawer closed; clicking Battle Log tab to open it");
-                        let _ = click_at(&activator, &input, tx, ty);
-                        step_at = Some(Instant::now());
+                } else {
+                    // Wait for the drawer to actually open instead of a fixed delay.
+                    // Opening the drawer reveals its own "Battle Log" title at the
+                    // top of the window (a different label from the results-screen
+                    // tab at the bottom, which is what we clicked). If that title
+                    // hasn't appeared yet, re-click the tab: the first click often
+                    // lands before the drawer is interactive, which is why the
+                    // export used to need a second full attempt.
+                    let open = crop_frame(&frame, drawer_title_region())
+                        .map(|c| !text_recognizer.find_text(&c.frame, &battle_log_needles()).is_empty())
+                        .unwrap_or(false);
+                    let out_of_retries = tab_reclicks >= DRAWER_MAX_RECLICKS;
+                    if open || out_of_retries {
+                        if !open {
+                            warn!(reclicks = tab_reclicks, "drawer never confirmed open; clicking Export anyway");
+                        } else {
+                            info!("Battle Log drawer open (title detected)");
+                        }
+                        // Clear the clipboard *before* Export so that whatever
+                        // lands on it afterwards is unambiguously this match's
+                        // log. Otherwise a leftover log from a previous match can
+                        // sit on the clipboard, and if the Export click fails to
+                        // copy, the engine reads that stale log, sees it as
+                        // "already captured", and falsely reports success while
+                        // saving nothing.
+                        if clipboard.clear() {
+                            info!("cleared clipboard before Export");
+                        } else {
+                            warn!("failed to clear clipboard before Export");
+                        }
+                        let (cx, cy) = relative_click(&window, &export_icon());
+                        info!(label = "Export icon", click_x = cx, click_y = cy, "clicking fixed-position Export icon");
+                        advance(&app, &mut state, CaptureEvent::ExportFound, "Export icon targeted", Some(format!("({}, {})", cx, cy)));
+                        tab_click = None;
+                        if click_at(&activator, &input, cx, cy).is_ok() {
+                            advance(&app, &mut state, CaptureEvent::ExportClicked, "Export clicked", Some(format!("({}, {})", cx, cy)));
+                            step_at = Some(Instant::now());
+                        }
+                    } else if let (Some(t), Some((tx, ty))) = (step_at, tab_click) {
+                        // Only re-click when the drawer is *believed closed* (its
+                        // title is absent). The Battle Log tab is a toggle — a
+                        // blind re-click would close an already-open drawer — so we
+                        // gate every tab click on the drawer being closed.
+                        if t.elapsed() >= Duration::from_millis(DRAWER_RETRY_MS) {
+                            tab_reclicks += 1;
+                            info!(attempt = tab_reclicks, "drawer closed; clicking Battle Log tab to open it");
+                            let _ = click_at(&activator, &input, tx, ty);
+                            step_at = Some(Instant::now());
+                        }
                     }
                 }
             }
@@ -298,19 +346,32 @@ pub fn run(app: AppHandle, running: Arc<AtomicBool>, state_cell: Arc<Mutex<Captu
                 }
             }
             CaptureState::AwaitingNextMatch => {
-                // Idle after a capture. Re-arm only once the results screen is
-                // actually gone, so we never re-click the Battle Log tab (or
-                // steal focus) while the player is still looking at it. Require
-                // a few consecutive clear reads so a mid-animation frame can't
-                // re-arm us early.
-                if text_recognizer.find_text(&frame, &battle_log_needles()).is_empty() {
+                // Capture is done. Click the results screen's Continue button
+                // for the player so they never have to — and can't click it too
+                // early out of habit before the export lands. Re-click on a gap
+                // in case a click misses, then re-arm once the results screen
+                // is gone (Continue no longer visible).
+                let continue_matches = text_recognizer.find_text(&frame, &continue_needles());
+                if continue_matches.is_empty() {
                     results_clear_polls += 1;
                     if results_clear_polls >= REARM_CLEAR_POLLS {
                         results_clear_polls = 0;
-                        advance(&app, &mut state, CaptureEvent::ResultsScreenDismissed, "Results screen dismissed; armed for the next match", None);
+                        advance(&app, &mut state, CaptureEvent::ResultsScreenDismissed, "Continue clicked; armed for the next match", None);
                     }
                 } else {
                     results_clear_polls = 0;
+                    let due = match last_continue_click {
+                        None => true,
+                        Some(t) => t.elapsed() >= Duration::from_millis(CONTINUE_CLICK_GAP_MS),
+                    };
+                    if due {
+                        let m = &continue_matches[0];
+                        let (cx, cy) = click_point(&window, &frame, m);
+                        info!(label = "Continue", click_x = cx, click_y = cy, "clicking Continue for the player");
+                        if click_at(&activator, &input, cx, cy).is_ok() {
+                            last_continue_click = Some(Instant::now());
+                        }
+                    }
                 }
             }
             _ => {}
@@ -348,6 +409,73 @@ pub fn run(app: AppHandle, running: Arc<AtomicBool>, state_cell: Arc<Mutex<Captu
         );
         let poll = if transient { POLL_FAST_MS } else { POLL_MS };
         std::thread::sleep(Duration::from_millis(poll));
+    }
+}
+
+/// Discover-mode loop: watch the game window and snapshot the Export-icon
+/// reference template the first time the Battle Log drawer is seen open. No
+/// clicks, no clipboard, no log saving.
+fn run_discover(
+    app: &AppHandle,
+    running: &Arc<AtomicBool>,
+    window_provider: &impl WindowProvider,
+    frame_capturer: &impl FrameCapturer,
+    text_recognizer: &impl TextRecognizer,
+) {
+    let screen_access = ScreenRecordingAccess;
+    let mut permission_requested = false;
+    let mut discovered = false;
+    loop {
+        if !running.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(250));
+            continue;
+        }
+        // Discover mode reads the screen too, so it needs the same Screen
+        // Recording grant as capture mode. Without it, frame capture silently
+        // fails and the template can never be snapped.
+        if !screen_access.is_authorized() {
+            if !permission_requested {
+                screen_access.request();
+                permission_requested = true;
+            }
+            emit_status(
+                app,
+                "PermissionRequired",
+                "Screen Recording permission required",
+                Some("grant access in System Settings > Privacy & Security > Screen Recording".to_string()),
+            );
+            std::thread::sleep(Duration::from_secs(5));
+            continue;
+        }
+        permission_requested = false;
+        let Some(window) = window_provider.find_game_window() else {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        };
+        let Some(frame) = frame_capturer.capture(&window) else {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        };
+        let drawer_open = crop_frame(&frame, drawer_title_region())
+            .map(|c| !text_recognizer.find_text(&c.frame, &battle_log_needles()).is_empty())
+            .unwrap_or(false);
+        if drawer_open && !discovered {
+            let scale = frame_to_point_scale(frame.width, window.width);
+            match calibration::save_export_icon(&frame, scale) {
+                Ok(path) => {
+                    info!(path = %path.display(), "discovered Export icon template");
+                    emit_status(
+                        app,
+                        "Discovered",
+                        "Export icon template captured",
+                        Some(path.to_string_lossy().into_owned()),
+                    );
+                    discovered = true;
+                }
+                Err(e) => warn!("failed to discover Export icon template: {e}"),
+            }
+        }
+        std::thread::sleep(Duration::from_millis(POLL_MS));
     }
 }
 
@@ -534,11 +662,17 @@ fn click_point(window: &WindowInfo, frame: &Frame, m: &TextMatch) -> (i32, i32) 
     // OCR coordinates are in captured-frame pixels; window geometry and click
     // targets are in points. On a Retina capture the frame is 2x, so divide
     // before offsetting by the window origin.
-    let scale = frame_to_point_scale(frame.width, window.width);
     let center_px = rect_center(Point { x: m.x as i32, y: m.y as i32 }, (m.width, m.height));
+    frame_point_to_screen(window, frame, center_px)
+}
+
+/// Convert a frame-pixel point to absolute screen coordinates: divide by the
+/// frame→point scale (Retina captures are 2x), then offset by the window origin.
+fn frame_point_to_screen(window: &WindowInfo, frame: &Frame, p: Point) -> (i32, i32) {
+    let scale = frame_to_point_scale(frame.width, window.width);
     let center_pt = Point {
-        x: (center_px.x as f32 / scale).round() as i32,
-        y: (center_px.y as f32 / scale).round() as i32,
+        x: (p.x as f32 / scale).round() as i32,
+        y: (p.y as f32 / scale).round() as i32,
     };
     let screen = window_to_screen(Point { x: window.x, y: window.y }, center_pt);
     (screen.x, screen.y)
@@ -580,5 +714,23 @@ mod tests {
         let frame = Frame { width: 2560, height: 0, rgba: Vec::new() };
         let m = TextMatch { text: "BATTLE LOG".into(), x: 0, y: 0, width: 10, height: 10 };
         assert!(is_results_screen_tab(&m, &frame));
+    }
+
+    #[test]
+    fn frame_point_to_screen_divides_retina_scale() {
+        // 2x capture: a frame pixel at (200, 100) is (100, 50) in window points,
+        // plus the window origin (100, 50) -> (200, 100) in screen coords.
+        let window = WindowInfo { title: "x".into(), x: 100, y: 50, width: 1280, height: 748 };
+        let frame = Frame { width: 2560, height: 1496, rgba: Vec::new() };
+        let (sx, sy) = frame_point_to_screen(&window, &frame, Point { x: 200, y: 100 });
+        assert_eq!((sx, sy), (200, 100));
+    }
+
+    #[test]
+    fn frame_point_to_screen_is_identity_at_1x() {
+        let window = WindowInfo { title: "x".into(), x: 10, y: 20, width: 1280, height: 748 };
+        let frame = Frame { width: 1280, height: 748, rgba: Vec::new() };
+        let (sx, sy) = frame_point_to_screen(&window, &frame, Point { x: 5, y: 7 });
+        assert_eq!((sx, sy), (15, 27));
     }
 }

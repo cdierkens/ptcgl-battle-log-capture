@@ -2,8 +2,11 @@ use unicode_normalization::UnicodeNormalization;
 
 /// Canonical game-window title hint. "Pokemon TCG Live" (ASCII) on some
 /// platforms, "Pokémon TCG Live" (accented) on others — normalize diacritics
-/// so a single hint matches both.
-pub const GAME_TITLE_HINT: &str = "pokemon";
+/// so a single hint matches both. The hint is deliberately "tcg live", not
+/// "pokemon": other windows (a browser tab, a notes vault) can contain
+/// "Pokémon" in their titles, but only the game window contains "TCG Live", so
+/// a distinctive hint keeps the engine from anchoring on the wrong window.
+pub const GAME_TITLE_HINT: &str = "tcg live";
 
 /// Case- and accent-insensitive match of a window title against a hint.
 pub fn matches_title(title: &str, hint: &str) -> bool {
@@ -36,6 +39,15 @@ mod tests {
     #[test]
     fn rejects_unrelated_title() {
         assert!(!matches_title("Google Chrome", "pokemon"));
+    }
+
+    #[test]
+    fn rejects_pokemon_docs_window_but_matches_game() {
+        // Regression: a notes/browser window whose title merely contains
+        // "Pokémon" must not be mistaken for the game.
+        assert!(!matches_title("OC | Pokémon deck workshop with repo research", GAME_TITLE_HINT));
+        assert!(matches_title("Pokémon TCG Live", GAME_TITLE_HINT));
+        assert!(matches_title("Pokemon TCG Live", GAME_TITLE_HINT));
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use tauri::State;
 
 use crate::logs::{self, LogSummary};
+use crate::mode::{self, Mode};
 use crate::settings::{self, Settings};
 use crate::state::CaptureState;
 
@@ -36,6 +37,16 @@ pub fn get_capture_running(running: State<'_, Arc<AtomicBool>>) -> bool {
 #[tauri::command]
 pub fn set_capture_running(running: bool, flag: State<'_, Arc<AtomicBool>>) {
     flag.store(running, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub fn get_mode() -> Mode {
+    mode::load()
+}
+
+#[tauri::command]
+pub fn set_mode(mode: Mode) -> Result<(), String> {
+    mode::save(mode)
 }
 
 #[tauri::command]

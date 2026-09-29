@@ -4,4 +4,5 @@ pub mod input;
 pub mod ocr;
 pub mod permission;
 pub mod store;
+pub mod template;
 pub mod window;

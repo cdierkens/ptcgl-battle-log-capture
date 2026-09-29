@@ -19,6 +19,7 @@ xcap = "0.9"
 arboard = "3"
 enigo = "0.6"
 image = "0.25"
+imageproc = "0.25"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"

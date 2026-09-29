@@ -11,16 +11,17 @@ pub struct ButtonLabels {
     pub confirm: &'static str,
     pub close: &'static str,
     pub export_copied: &'static str,
+    pub continue_label: &'static str,
 }
 
 pub const BUTTON_LABELS: &[(&str, ButtonLabels)] = &[
-    ("en",    ButtonLabels { battle_log: "Battle Log",  export: "Export",     confirm: "Confirm",    close: "close",    export_copied: "Export Copied!" }),
-    ("de",    ButtonLabels { battle_log: "Kampf-Protokoll", export: "Exportieren", confirm: "Bestätigen", close: "Schließen", export_copied: "Export kopiert!" }),
-    ("es",    ButtonLabels { battle_log: "registro del combate", export: "Exportar", confirm: "confirmar", close: "cerrar", export_copied: "¡Información copiada!" }),
-    ("es_la", ButtonLabels { battle_log: "registro del combate", export: "Exportar", confirm: "confirmar", close: "cerrar", export_copied: "¡Información copiada!" }),
-    ("fr",    ButtonLabels { battle_log: "Journal de combat", export: "Exporter", confirm: "confirmer", close: "fermer", export_copied: "Export copié !" }),
-    ("it",    ButtonLabels { battle_log: "registro lotta", export: "Esporta", confirm: "conferma", close: "chiudi", export_copied: "Esportazione copiata!" }),
-    ("ptbr",  ButtonLabels { battle_log: "Registro de Batalha", export: "Exportar", confirm: "confirmar", close: "fechar", export_copied: "Exportar copiado!" }),
+    ("en",    ButtonLabels { battle_log: "Battle Log",  export: "Export",     confirm: "Confirm",    close: "close",    export_copied: "Export Copied!",     continue_label: "Continue" }),
+    ("de",    ButtonLabels { battle_log: "Kampf-Protokoll", export: "Exportieren", confirm: "Bestätigen", close: "Schließen", export_copied: "Export kopiert!", continue_label: "Fortfahren" }),
+    ("es",    ButtonLabels { battle_log: "registro del combate", export: "Exportar", confirm: "confirmar", close: "cerrar", export_copied: "¡Información copiada!", continue_label: "Continuar" }),
+    ("es_la", ButtonLabels { battle_log: "registro del combate", export: "Exportar", confirm: "confirmar", close: "cerrar", export_copied: "¡Información copiada!", continue_label: "Continuar" }),
+    ("fr",    ButtonLabels { battle_log: "Journal de combat", export: "Exporter", confirm: "confirmer", close: "fermer", export_copied: "Export copié !", continue_label: "Continuer" }),
+    ("it",    ButtonLabels { battle_log: "registro lotta", export: "Esporta", confirm: "conferma", close: "chiudi", export_copied: "Esportazione copiata!", continue_label: "Continua" }),
+    ("ptbr",  ButtonLabels { battle_log: "Registro de Batalha", export: "Exportar", confirm: "confirmar", close: "fechar", export_copied: "Exportar copiado!", continue_label: "Continuar" }),
 ];
 
 /// Needle set for the "Battle Log" (open-panel) button across all locales. This
@@ -52,6 +53,14 @@ pub fn export_copied_needles() -> Vec<String> {
     BUTTON_LABELS.iter().map(|(_, l)| l.export_copied.to_string()).collect()
 }
 
+/// Needle set for the "Continue" button across all locales. It is the results
+/// screen's primary CTA — after a capture, its absence is the signal that the
+/// player has taken back over (the results screen is dismissed), so the engine
+/// can safely re-arm for the next match.
+pub fn continue_needles() -> Vec<String> {
+    BUTTON_LABELS.iter().map(|(_, l)| l.continue_label.to_string()).collect()
+}
+
 /// A UI element with no text label, located as a fraction of the game window.
 /// The PTCG Live window is fixed-size, so these fractions are stable across
 /// runs and device pixel densities (they are applied to the *window* size, not
@@ -80,6 +89,27 @@ pub fn export_icon() -> RelativePoint {
 /// The drawer Close icon, as a fraction of the game window.
 pub fn close_icon() -> RelativePoint {
     DRAWER_ICONS[1]
+}
+
+/// A window-fraction box centered on the Export icon, used as the seed crop
+/// region when discovering the Export-icon reference template. The icon is
+/// icon-only, so OCR cannot find it; this box bounds its known header position
+/// and whatever lands in it at discover time becomes the calibrated template.
+pub fn export_icon_region() -> RelativeRect {
+    let p = export_icon();
+    RelativeRect {
+        x0: (p.x_frac - 0.04).max(0.0),
+        y0: (p.y_frac - 0.04).max(0.0),
+        x1: (p.x_frac + 0.04).min(1.0),
+        y1: (p.y_frac + 0.04).min(1.0),
+    }
+}
+
+/// Search window for template-matching the Export icon at run time. Tight band
+/// around the drawer's Export icon (x 0.90..1.0, y 0.01..0.15) so the NCC scan
+/// stays cheap; the template is the anchor, this is only the search window.
+pub fn export_icon_search_region() -> RelativeRect {
+    RelativeRect { x0: 0.90, y0: 0.01, x1: 1.0, y1: 0.15 }
 }
 
 /// Region of the results screen where the "Battle Log" tab label renders, as
@@ -146,6 +176,13 @@ mod tests {
     }
 
     #[test]
+    fn continue_needles_cover_english_and_german() {
+        let needles = continue_needles();
+        assert!(needles.iter().any(|n| n == "Continue"));
+        assert!(needles.iter().any(|n| n == "Fortfahren"));
+    }
+
+    #[test]
     fn every_locale_has_all_labels() {
         for (locale, labels) in BUTTON_LABELS {
             for (field, value) in [
@@ -154,9 +191,26 @@ mod tests {
                 ("confirm", labels.confirm),
                 ("close", labels.close),
                 ("export_copied", labels.export_copied),
+                ("continue", labels.continue_label),
             ] {
                 assert!(!value.trim().is_empty(), "{locale} {field} must be non-empty");
             }
         }
+    }
+
+    #[test]
+    fn export_icon_region_contains_the_export_icon() {
+        let region = export_icon_region();
+        let p = export_icon();
+        assert!(region.x0 <= p.x_frac && p.x_frac <= region.x1);
+        assert!(region.y0 <= p.y_frac && p.y_frac <= region.y1);
+    }
+
+    #[test]
+    fn export_icon_search_region_contains_the_export_icon() {
+        let region = export_icon_search_region();
+        let p = export_icon();
+        assert!(region.x0 <= p.x_frac && p.x_frac <= region.x1);
+        assert!(region.y0 <= p.y_frac && p.y_frac <= region.y1);
     }
 }

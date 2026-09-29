@@ -1,4 +1,5 @@
 pub mod buttons;
+pub mod calibration;
 pub mod commands;
 pub mod coords;
 pub mod dedupe;
@@ -8,6 +9,7 @@ pub mod gate;
 pub mod logging;
 pub mod logname;
 pub mod logs;
+pub mod mode;
 pub mod platform;
 pub mod ports;
 pub mod settings;
@@ -31,6 +33,8 @@ pub fn run() {
             commands::get_capture_running,
             commands::set_capture_running,
             commands::get_capture_state,
+            commands::get_mode,
+            commands::set_mode,
         ])
         .setup(|app| {
             let guard = logging::init();

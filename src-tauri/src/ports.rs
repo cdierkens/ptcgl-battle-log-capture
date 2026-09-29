@@ -2,6 +2,10 @@
 /// signatures; concrete implementations (xcap capture, enigo clicks, arboard
 /// clipboard, filesystem save) are wired behind these so the core stays
 /// unit-testable without a live game.
+use image::RgbaImage;
+
+use crate::coords::{Point, RelativeRect};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowInfo {
     pub title: String,
@@ -77,4 +81,21 @@ pub trait TextRecognizer {
     /// with neighbouring text (e.g. "Export Copied!" + adjacent label), so this
     /// is used for the transient confirmation toast.
     fn find_text_containing(&self, frame: &Frame, needles: &[String]) -> Vec<TextMatch>;
+}
+
+/// Finds a calibrated reference template within a captured frame, returning the
+/// template center in frame pixel coordinates (top-left origin). `template_scale`
+/// and `frame_scale` are the pixel densities (frame px / window pt) of the
+/// template and frame respectively, so the matcher can rescale the template to
+/// the frame's density before matching. `search` optionally confines the search
+/// to a window-fraction region (the return point is still full-frame).
+pub trait TemplateMatcher {
+    fn find(
+        &self,
+        frame: &Frame,
+        template: &RgbaImage,
+        template_scale: f32,
+        frame_scale: f32,
+        search: Option<RelativeRect>,
+    ) -> Option<Point>;
 }

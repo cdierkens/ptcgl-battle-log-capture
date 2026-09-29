@@ -16,9 +16,9 @@ pub enum CaptureState {
     ConfirmPressed,
     CloseDetected,
     Captured,
-    /// A capture just completed. We stay here, idle, until the results screen
-    /// is dismissed, so we never re-capture (or steal focus) while the user is
-    /// still looking at the screen they just finished.
+    /// A capture just completed. We click the results screen's Continue button
+    /// for the player (so they can't click it too early out of habit) and re-arm
+    /// once the results screen is gone.
     AwaitingNextMatch,
 }
 
