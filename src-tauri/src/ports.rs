@@ -1,14 +1,15 @@
 /// Platform side-effect ports. The pure core logic depends only on these trait
-/// signatures; concrete implementations (xcap capture, enigo clicks, arboard
-/// clipboard, filesystem save) are wired behind these so the core stays
-/// unit-testable without a live game.
-use image::RgbaImage;
-
-use crate::coords::{Point, RelativeRect};
+/// signatures; concrete implementations (xcap window lookup and capture, Vision
+/// OCR, filesystem save, Tauri overlay windows) are wired behind these so the
+/// core stays unit-testable without a live game.
+use crate::overlay_geometry::ScreenRect;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowInfo {
     pub title: String,
+    /// The owning process, used to tell whether the game is the active app.
+    /// `None` when the OS didn't report it.
+    pub pid: Option<u32>,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -31,23 +32,28 @@ pub trait FrameCapturer {
     fn capture(&self, window: &WindowInfo) -> Option<Frame>;
 }
 
-pub trait InputController {
-    fn click(&self, x: i32, y: i32) -> Result<(), String>;
-}
-
-/// Brings the game process to the foreground so a synthesized click is
-/// delivered to it rather than to whatever app is currently frontmost.
-pub trait WindowActivator {
-    fn activate_game(&self, process_name: &str) -> Result<(), String>;
-}
-
-pub trait ClipboardReader {
-    fn read_text(&self) -> Option<String>;
-}
-
 pub trait LogStore {
     /// Save the battle-log text, returning the written file path on success.
     fn save(&self, text: &str) -> Result<String, String>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum OverlayError {
+    #[error("overlay window `{label}` is unavailable")]
+    WindowUnavailable { label: &'static str },
+    #[error("overlay window `{label}` failed: {reason}")]
+    Window { label: &'static str, reason: String },
+}
+
+/// Shows, moves, and hides the capture drawer and Continue shield windows.
+pub trait OverlayPresenter: Send + Sync {
+    fn show_drawer(&self, game: &WindowInfo) -> Result<(), OverlayError>;
+    /// Resize the drawer window for the handle (closed) or the drawer (open).
+    fn set_drawer_open(&self, open: bool) -> Result<(), OverlayError>;
+    fn hide_drawer(&self) -> Result<(), OverlayError>;
+    /// `local` is window-local; the presenter offsets it by the game origin.
+    fn show_shield(&self, game: &WindowInfo, local: ScreenRect) -> Result<(), OverlayError>;
+    fn hide_shield(&self) -> Result<(), OverlayError>;
 }
 
 /// Screen-recording authorization (macOS). On other platforms this is always
@@ -77,25 +83,6 @@ pub trait TextRecognizer {
     fn find_text(&self, frame: &Frame, needles: &[String]) -> Vec<TextMatch>;
 
     /// Like `find_text`, but a match is any recognized string that *contains*
-    /// one of `needles` as a substring. Vision frequently merges a small toast
-    /// with neighbouring text (e.g. "Export Copied!" + adjacent label), so this
-    /// is used for the transient confirmation toast.
+    /// one of `needles` as a substring.
     fn find_text_containing(&self, frame: &Frame, needles: &[String]) -> Vec<TextMatch>;
-}
-
-/// Finds a calibrated reference template within a captured frame, returning the
-/// template center in frame pixel coordinates (top-left origin). `template_scale`
-/// and `frame_scale` are the pixel densities (frame px / window pt) of the
-/// template and frame respectively, so the matcher can rescale the template to
-/// the frame's density before matching. `search` optionally confines the search
-/// to a window-fraction region (the return point is still full-frame).
-pub trait TemplateMatcher {
-    fn find(
-        &self,
-        frame: &Frame,
-        template: &RgbaImage,
-        template_scale: f32,
-        frame_scale: f32,
-        search: Option<RelativeRect>,
-    ) -> Option<Point>;
 }

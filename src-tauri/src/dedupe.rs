@@ -23,6 +23,11 @@ impl SeenHashes {
     pub fn insert(&mut self, text: &str) -> bool {
         self.seen.insert(hash(text))
     }
+
+    /// Drop `text` after Undo/Delete so the same log can be saved again. True if it was present.
+    pub fn forget(&mut self, text: &str) -> bool {
+        self.seen.remove(&hash(text))
+    }
 }
 
 fn hash(text: &str) -> [u8; 32] {
@@ -39,6 +44,15 @@ mod tests {
     fn fresh_text_is_new() {
         let seen = SeenHashes::new();
         assert!(seen.is_new("Setup\ncdierkens's Turn\n"));
+    }
+
+    #[test]
+    fn forget_makes_text_new_again() {
+        let mut seen = SeenHashes::new();
+        seen.insert("log one");
+        assert!(seen.forget("log one"));
+        assert!(seen.is_new("log one"));
+        assert!(!seen.forget("log one"));
     }
 
     #[test]

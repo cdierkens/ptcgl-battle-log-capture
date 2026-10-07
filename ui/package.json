@@ -12,8 +12,11 @@
   },
   "dependencies": {
     "@pokedojo/config": "workspace:*",
+    "@pokedojo/logic": "workspace:*",
+    "@pokedojo/types": "workspace:*",
     "@pokedojo/ui": "workspace:*",
     "@tauri-apps/api": "^2",
+    "effect": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

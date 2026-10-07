@@ -1,8 +1,8 @@
 pub mod clipboard;
+pub mod focus;
 pub mod frame;
-pub mod input;
 pub mod ocr;
+pub mod overlay;
 pub mod permission;
 pub mod store;
-pub mod template;
 pub mod window;

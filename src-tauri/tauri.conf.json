@@ -7,10 +7,12 @@
     "frontendDist": "../ui/dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "PTCGL Tracker",
+        "visible": false,
         "width": 420,
         "height": 640,
         "resizable": true

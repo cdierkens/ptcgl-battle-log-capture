@@ -1,8 +1,8 @@
 use serde::Serialize;
 
-use crate::state::CaptureState;
+use crate::overlay_state::OverlayState;
 
-/// A capture-loop state transition, emitted to the frontend and logged.
+/// An overlay state change, emitted to the main window and logged.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureStatus {
@@ -13,20 +13,9 @@ pub struct CaptureStatus {
 }
 
 impl CaptureStatus {
-    pub fn new(state: CaptureState, message: impl Into<String>, detail: Option<String>) -> Self {
+    pub fn new(state: OverlayState, message: impl Into<String>, detail: Option<String>) -> Self {
         Self {
-            state: state.to_string(),
-            message: message.into(),
-            detail,
-            ts: now_millis(),
-        }
-    }
-
-    /// A status emit that is not a state-machine transition (e.g. capture
-    /// started/stopped), for events the UI needs but the engine state does not model.
-    pub fn custom(state: &str, message: impl Into<String>, detail: Option<String>) -> Self {
-        Self {
-            state: state.to_string(),
+            state: state.name().to_string(),
             message: message.into(),
             detail,
             ts: now_millis(),
@@ -47,17 +36,17 @@ mod tests {
 
     #[test]
     fn serializes_camel_case() {
-        let status = CaptureStatus::new(CaptureState::LogTabDetected, "Results screen detected", Some("score=0.9842".to_string()));
+        let status = CaptureStatus::new(OverlayState::InMatch, "Watching for the results screen", Some("detail".to_string()));
         let json = serde_json::to_value(status).unwrap();
-        assert_eq!(json["state"], "LogTabDetected");
-        assert_eq!(json["message"], "Results screen detected");
-        assert_eq!(json["detail"], "score=0.9842");
+        assert_eq!(json["state"], "InMatch");
+        assert_eq!(json["message"], "Watching for the results screen");
+        assert_eq!(json["detail"], "detail");
         assert!(json["ts"].is_u64());
     }
 
     #[test]
     fn detail_may_be_none() {
-        let status = CaptureStatus::new(CaptureState::Idle, "Waiting", None);
+        let status = CaptureStatus::new(OverlayState::NoWindow, "Waiting", None);
         let json = serde_json::to_value(status).unwrap();
         assert!(json["detail"].is_null());
     }

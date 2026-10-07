@@ -99,6 +99,35 @@ pub fn read_log(dir: &Path, file_name: &str) -> Result<String, String> {
     Ok(contents)
 }
 
+/// Move one captured log to the Trash. Returns its text so the session dedupe can forget it.
+pub fn trash_log(dir: &Path, file_name: &str) -> Result<String, String> {
+    let text = read_log(dir, file_name)?;
+    let path = resolve_log_path(dir, file_name)?;
+    move_to_trash(&path).map_err(|e| format!("couldn't move the log to the Trash: {e}"))?;
+    Ok(text)
+}
+
+fn move_to_trash(path: &Path) -> Result<(), trash::Error> {
+    #[allow(unused_mut)]
+    let mut trash = trash::TrashContext::default();
+    // The default Finder method needs Automation permission and plays a sound.
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        trash.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    trash.delete(path)
+}
+
+/// The bare file name of a saved path (e.g. from `overlay://state`), for `resolve_log_path`.
+pub fn file_name_of(path: &str) -> Result<String, String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("invalid log path: {path}"))
+}
+
 /// Open a file without following symlinks. On Unix this is atomic via
 /// `O_NOFOLLOW`, closing the TOCTOU window where a symlink is planted between
 /// the containment check and the open.
@@ -164,6 +193,21 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn file_name_of_keeps_only_the_last_component() {
+        assert_eq!(file_name_of("/Users/me/logs/ptcgl-1.txt"), Ok("ptcgl-1.txt".to_string()));
+        assert!(file_name_of("/").is_err());
+        assert!(file_name_of("").is_err());
+    }
+
+    // Successful trashing touches the real Trash, so it's covered by the manual check instead.
+    #[test]
+    fn trash_log_refuses_before_touching_anything() {
+        let dir = TempDir::new("trash");
+        assert!(trash_log(dir.path(), "../secret.txt").is_err());
+        assert!(trash_log(dir.path(), "ptcgl-1700000000000000000.txt").is_err(), "missing file");
     }
 
     #[test]
