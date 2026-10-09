@@ -24,13 +24,23 @@ use crate::ports::{FrameCapturer, OverlayPresenter, ScreenCaptureAccess, WindowI
 use crate::settings::{self, SharedSettings};
 use crate::sink::{LogSink, SubmitError, SubmitOutcome};
 
-/// Sleep between polls while the game window exists. A release-build poll does
-/// ~100ms of find + capture + region OCR, so results show ~150ms after the label.
+/// Sleep between polls while the game window exists. A poll costs one window
+/// lookup, one screen capture, and one region OCR. Vision's cost is not
+/// proportional to crop size: a 512x150 region costs ~33ms while a 1.5Mpx band
+/// and a 3.8Mpx whole frame both cost ~250ms, so it flattens well before
+/// full-frame size. The encoder is therefore negligible (0.12ms for the
+/// 512x150 region) and shrinking the crop further buys almost nothing — the
+/// remaining lever is making fewer OCR calls. Results show roughly one poll
+/// period after the label renders.
 const POLL_FAST_MS: u64 = 50;
 const POLL_IDLE_MS: u64 = 1000;
 const POLL_PERMISSION_MS: u64 = 5000;
-/// Every Nth poll sweeps the whole frame for the results tab instead of its region.
-const FULL_FRAME_SWEEP_EVERY: u32 = 15;
+/// Every Nth poll widens the results-tab check to `battle_log_sweep_region`
+/// instead of its measured region, as a safety net against the tab rendering
+/// somewhere new. A band, not the whole frame: measured back-to-back on a
+/// 2560x1496 capture, the band costs 36-58% less than the whole frame it
+/// replaces, consistently across runs.
+const SWEEP_EVERY: u32 = 15;
 const CAPTURE_STATUS_EVENT: &str = "capture-status";
 pub const OVERLAY_STATE_EVENT: &str = "overlay://state";
 
@@ -196,8 +206,8 @@ impl EngineCtx {
         let shown = visible.then_some(&window);
         if let Some(frame) = frames.capture(&window) {
             self.polls = self.polls.wrapping_add(1);
-            let full_sweep = self.polls % FULL_FRAME_SWEEP_EVERY == 0;
-            let tab_visible = probe.tab_visible(&frame, full_sweep);
+            let sweep = self.polls % SWEEP_EVERY == 0;
+            let tab_visible = probe.tab_visible(&frame, sweep);
             // Only pay for the drawer OCR when it can matter.
             let drawer_open = !tab_visible && self.tracker.is_present() && probe.drawer_open(&frame);
             match self.tracker.observe(tab_visible, drawer_open) {
@@ -442,7 +452,7 @@ mod tests {
     }
 
     impl ResultsProbe for ScriptedProbe {
-        fn tab_visible(&self, _frame: &Frame, _full_sweep: bool) -> bool {
+        fn tab_visible(&self, _frame: &Frame, _sweep: bool) -> bool {
             self.tab.get()
         }
 

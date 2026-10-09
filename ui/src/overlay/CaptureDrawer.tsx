@@ -11,11 +11,9 @@ import { useStatusHistory } from "../lib/use-status-history";
 
 /** Matches the panel's `duration-200` slide. */
 const SLIDE_MS = 200;
-/** After a clipboard auto-save the drawer closes itself unless the player engages with it. */
-const AUTOSAVE_CLOSE_MS = 8000;
 
 export function CaptureDrawer() {
-  const { autosaved, error: bridgeError, state } = useOverlayState();
+  const { error: bridgeError, state } = useOverlayState();
   const prompts = useSettings().settings?.prompt_after_match ?? true;
   const { error: historyError, history } = useStatusHistory();
   const [open, setOpen] = useState(false);
@@ -25,28 +23,18 @@ export function CaptureDrawer() {
   const [mounted, setMounted] = useState(false);
   const [shown, setShown] = useState(false);
   const [resizeError, setResizeError] = useState<null | string>(null);
-  const [engaged, setEngaged] = useState(false);
   const previousState = useRef<null | string>(null);
 
   useEffect(() => {
     if (state === null) return;
     const previous = previousState.current;
     previousState.current = state;
-    setOpen((current) => nextDrawerOpen(previous, state, current, prompts, autosaved));
-  }, [autosaved, prompts, state]);
+    setOpen((current) => nextDrawerOpen(previous, state, current, prompts));
+  }, [prompts, state]);
 
   useEffect(() => {
-    if (!open) {
-      setEngaged(false);
-      setFocusPaste(false);
-    }
+    if (!open) setFocusPaste(false);
   }, [open]);
-
-  useEffect(() => {
-    if (!open || engaged || !autosaved || state !== "Saved") return;
-    const timer = window.setTimeout(() => setOpen(false), AUTOSAVE_CLOSE_MS);
-    return () => window.clearTimeout(timer);
-  }, [autosaved, engaged, open, state]);
 
   useEffect(() => {
     if (open) {
@@ -111,8 +99,7 @@ export function CaptureDrawer() {
         // The click that opened the drawer must not land on whatever renders under the cursor.
         shown ? "translate-x-0" : "pointer-events-none -translate-x-full",
       )}
-      onKeyDown={() => setEngaged(true)}
-      onPointerDown={() => setEngaged(true)}
+
     >
       {resizeError !== null ? <Callout variant="critical">{resizeError}</Callout> : null}
       <div className="min-h-0 flex-1">

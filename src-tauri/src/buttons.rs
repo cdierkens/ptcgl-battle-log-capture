@@ -40,6 +40,28 @@ pub fn battle_log_region() -> RelativeRect {
     RelativeRect { x0: 0.43, y0: 0.76, x1: 0.58, y1: 0.86 }
 }
 
+/// Safety-net region for the results-screen Battle Log tab, as fractions of the
+/// captured frame. Used by the periodic sweep in place of a whole-frame OCR:
+/// the measured tab box sits at x 0.43-0.58, y 0.76-0.86 and the open drawer's
+/// header tab sits near y 0.06, so a lower band covers tab drift while still
+/// excluding the drawer.
+///
+/// The rect below is the spec's proposal, not a measured placement: the cost of
+/// scanning *a* band is known, but this band's bounds have not yet been confirmed
+/// against a live results screen. Timings, measured on a 2560x1496 capture
+/// back-to-back with the whole-frame sweep this replaces: 140.6ms versus 221.4ms,
+/// holding at 36-58% across three runs. The tighter `band-tight` candidate
+/// (x 0.30-0.70, y 0.70-0.92) measured 124.9ms, but it was not chosen — Vision's
+/// cost flattens well before full-frame size (a 1.5Mpx band and the 3.8Mpx whole
+/// frame both cost ~250ms), so the wider band's extra pixels cost almost nothing
+/// and margin is the entire purpose of a safety net.
+///
+/// Absolute OCR figures are not comparable across runs (Vision's cost varies with
+/// on-screen content); the back-to-back ratios are.
+pub fn battle_log_sweep_region() -> RelativeRect {
+    RelativeRect { x0: 0.20, y0: 0.65, x1: 0.80, y1: 0.95 }
+}
+
 /// Region of the results screen where the Continue button label renders, as
 /// fractions of the captured frame. Measured live: "CONTINUE" at x 0.470–0.531,
 /// y 0.939–0.961 of a 2560x1496 capture; padded so localized labels still fit.
@@ -70,6 +92,38 @@ mod tests {
         let needles = continue_needles();
         assert!(needles.iter().any(|n| n == "Continue"));
         assert!(needles.iter().any(|n| n == "Fortfahren"));
+    }
+
+    #[test]
+    fn sweep_band_contains_the_measured_tab_box() {
+        let tab = battle_log_region();
+        let band = battle_log_sweep_region();
+        assert!(band.x0 <= tab.x0 && band.x1 >= tab.x1);
+        assert!(band.y0 <= tab.y0 && band.y1 >= tab.y1);
+    }
+
+    /// Measured top-edge y of the open drawer's own "Battle Log" header, as a
+    /// fraction of the frame (y=92 of a 1496px capture).
+    const DRAWER_HEADER_Y: f32 = 92.0 / 1496.0;
+
+    #[test]
+    fn sweep_band_excludes_the_drawer_header() {
+        // This is the guarantee that matters: the band, not the y-threshold in
+        // `is_results_screen_tab`, is what keeps the drawer from reading as the
+        // results screen. Assert against the measured header position.
+        let band = battle_log_sweep_region();
+        assert!(
+            band.y0 > DRAWER_HEADER_Y,
+            "band starts at y {} but the drawer header sits at y {DRAWER_HEADER_Y}",
+            band.y0
+        );
+    }
+
+    #[test]
+    fn sweep_band_is_far_smaller_than_the_frame() {
+        let band = battle_log_sweep_region();
+        let area = (band.x1 - band.x0) * (band.y1 - band.y0);
+        assert!(area < 0.25, "band covers {:.1}% of the frame", area * 100.0);
     }
 
     #[test]

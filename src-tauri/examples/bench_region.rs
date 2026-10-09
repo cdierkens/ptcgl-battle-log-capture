@@ -5,6 +5,7 @@ use battle_log_capture_lib::platform::frame::XcapFrameCapturer;
 use battle_log_capture_lib::platform::window::XcapWindowProvider;
 use battle_log_capture_lib::ports::{FrameCapturer, WindowProvider, Frame, TextRecognizer};
 use battle_log_capture_lib::platform::ocr::VisionTextRecognizer;
+use battle_log_capture_lib::bmp::encode_bmp;
 use battle_log_capture_lib::buttons::battle_log_needles;
 
 fn crop(f: &Frame, x0: f32, y0: f32, x1: f32, y1: f32) -> Frame {
@@ -21,6 +22,32 @@ fn crop(f: &Frame, x0: f32, y0: f32, x1: f32, y1: f32) -> Frame {
     Frame { width: w, height: h, rgba }
 }
 
+/// Median of 5 OCR calls, in milliseconds.
+fn median_ms(ocr: &VisionTextRecognizer, frame: &Frame, needles: &[String]) -> f64 {
+    let mut t = vec![];
+    for _ in 0..5 {
+        let s = Instant::now();
+        let _ = ocr.find_text(frame, needles);
+        t.push(s.elapsed().as_secs_f64() * 1000.0);
+    }
+    t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    t[2]
+}
+
+/// Median of 5 encodes, in milliseconds. Isolates our own cost from Vision's,
+/// which varies with on-screen content and so is not comparable across runs.
+fn median_encode_ms(frame: &Frame) -> f64 {
+    let mut t = vec![];
+    for _ in 0..5 {
+        let s = Instant::now();
+        let out = encode_bmp(frame).expect("non-degenerate frame");
+        std::hint::black_box(&out);
+        t.push(s.elapsed().as_secs_f64() * 1000.0);
+    }
+    t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    t[2]
+}
+
 fn main() {
     let wp = XcapWindowProvider::new("pokemon");
     let Some(window) = wp.find_game_window() else { println!("no window"); return };
@@ -33,17 +60,37 @@ fn main() {
     let region = crop(&frame, 0.40, 0.76, 0.60, 0.86);
     println!("region size: {}x{}", region.width, region.height);
 
-    // full frame
-    let mut t1 = vec![];
-    for _ in 0..5 { let t = Instant::now(); let _ = ocr.find_text(&frame, &needles); t1.push(t.elapsed().as_secs_f64()*1000.0); }
-    t1.sort_by(|a,b| a.partial_cmp(b).unwrap());
-    println!("full-frame ocr:    median {:.1} ms", t1[2]);
+    // Positive control. The needle counts below are ambiguous on their own:
+    // "0 matches" looks the same whether Vision decoded our BMP correctly and
+    // simply found no "BATTLE LOG", or whether the BMP is garbage and Vision
+    // sees nothing at all. This asks for any recognized string containing an
+    // "e", which any real screen will have, so a non-zero count proves the
+    // encoder produces something Vision can actually read.
+    let control = vec!["e".to_string()];
+    let control_hits = ocr.find_text_containing(&frame, &control).len();
+    println!("vision control (any text with an 'e'): {} hits", control_hits);
+    if control_hits == 0 {
+        println!("  !! Vision read NOTHING — the BMP encoder is not producing a decodable image");
+    }
 
-    // region only
-    let mut t2 = vec![];
-    for _ in 0..5 { let t = Instant::now(); let _ = ocr.find_text(&region, &needles); t2.push(t.elapsed().as_secs_f64()*1000.0); }
-    t2.sort_by(|a,b| a.partial_cmp(b).unwrap());
-    println!("region-only ocr:   median {:.1} ms", t2[2]);
+    // Our own encode cost, isolated from Vision's content-dependent variance.
+    println!("encode full  ({}x{}): median {:.2} ms", frame.width, frame.height, median_encode_ms(&frame));
+    println!("encode region({}x{}): median {:.2} ms", region.width, region.height, median_encode_ms(&region));
+
+    println!("full-frame ocr:    median {:.1} ms", median_ms(&ocr, &frame, &needles));
+    println!("region-only ocr:   median {:.1} ms", median_ms(&ocr, &region, &needles));
     println!("region match: {:?}", ocr.find_text(&region, &needles).len());
     println!("full   match: {:?}", ocr.find_text(&frame, &needles).len());
+
+    // Candidate sweep bands: the safety net the engine uses instead of a
+    // whole-frame OCR. All three cover the measured tab box (x 0.43-0.58,
+    // y 0.76-0.86); pick the cheapest that keeps the margin you want.
+    for (name, r) in [
+        ("band-tight  x0.30-0.70 y0.70-0.92", (0.30, 0.70, 0.70, 0.92)),
+        ("band-medium x0.20-0.80 y0.65-0.95", (0.20, 0.65, 0.80, 0.95)),
+        ("band-wide   x0.00-1.00 y0.60-1.00", (0.00, 0.60, 1.00, 1.00)),
+    ] {
+        let c = crop(&frame, r.0, r.1, r.2, r.3);
+        println!("{}: {}x{} ocr median {:.1} ms", name, c.width, c.height, median_ms(&ocr, &c, &needles));
+    }
 }

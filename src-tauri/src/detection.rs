@@ -1,6 +1,9 @@
 //! Read-only results-screen detection.
 
-use crate::buttons::{battle_log_needles, battle_log_region, continue_needles, continue_region, drawer_title_region};
+use crate::buttons::{
+    battle_log_needles, battle_log_region, battle_log_sweep_region, continue_needles, continue_region,
+    drawer_title_region,
+};
 use crate::coords::crop_frame;
 use crate::ports::{Frame, TextMatch, TextRecognizer};
 
@@ -60,8 +63,10 @@ impl ResultsTracker {
 
 /// What the engine needs to know about one captured frame.
 pub trait ResultsProbe {
-    /// The results-screen Battle Log tab is visible.
-    fn tab_visible(&self, frame: &Frame, full_sweep: bool) -> bool;
+    /// The results-screen Battle Log tab is visible. `sweep` widens the check
+    /// from the measured region to `battle_log_sweep_region`, as a safety net
+    /// against the tab rendering somewhere new.
+    fn tab_visible(&self, frame: &Frame, sweep: bool) -> bool;
     /// The Battle Log drawer is open (its title shows at the top).
     fn drawer_open(&self, frame: &Frame) -> bool;
     /// The results screen's Continue label, in frame pixels.
@@ -86,14 +91,20 @@ impl<T: TextRecognizer> OcrResultsProbe<T> {
 }
 
 impl<T: TextRecognizer> ResultsProbe for OcrResultsProbe<T> {
-    fn tab_visible(&self, frame: &Frame, full_sweep: bool) -> bool {
-        if full_sweep {
-            // Safety net in case the tab ever renders outside its measured region.
-            return self
-                .ocr
-                .find_text(frame, &battle_log_needles())
-                .iter()
-                .any(|m| is_results_screen_tab(m, frame));
+    fn tab_visible(&self, frame: &Frame, sweep: bool) -> bool {
+        if sweep {
+            // Safety net in case the tab ever renders outside its measured
+            // region. Cropping to the band means matches come back in
+            // crop-local coordinates, so they must be offset by the crop
+            // origin before the y-threshold test — without this a match is
+            // judged at the wrong row.
+            let Some(crop) = crop_frame(frame, battle_log_sweep_region()) else {
+                return false;
+            };
+            return self.ocr.find_text(&crop.frame, &battle_log_needles()).iter().any(|m| {
+                let in_frame = TextMatch { x: m.x + crop.origin_x, y: m.y + crop.origin_y, ..m.clone() };
+                is_results_screen_tab(&in_frame, frame)
+            });
         }
         self.region_has_battle_log(frame, battle_log_region())
     }
@@ -143,6 +154,11 @@ mod tests {
         TextMatch { text: text.into(), x: 100, y, width: 20, height: 4 }
     }
 
+    fn band_origin(frame: &Frame) -> (u32, u32) {
+        let crop = crop_frame(frame, battle_log_sweep_region()).unwrap();
+        (crop.origin_x, crop.origin_y)
+    }
+
     #[test]
     fn region_hit_means_tab_visible() {
         assert!(OcrResultsProbe::new(FixedOcr(vec![label("Battle Log", 3)])).tab_visible(&frame(), false));
@@ -150,9 +166,28 @@ mod tests {
     }
 
     #[test]
-    fn full_sweep_rejects_the_drawer_header_tab() {
-        assert!(!OcrResultsProbe::new(FixedOcr(vec![label("Battle Log", 5)])).tab_visible(&frame(), true));
-        assert!(OcrResultsProbe::new(FixedOcr(vec![label("Battle Log", 120)])).tab_visible(&frame(), true));
+    fn sweep_offsets_matches_by_the_crop_origin() {
+        let frame = frame();
+        // Band origin in a 256x150 frame is (round(0.20*256), round(0.65*150)).
+        assert_eq!(band_origin(&frame), (51, 98));
+        // A match at crop-local y=5 is really at y=103. Un-offset it would be
+        // judged at y=5 and rejected as a drawer header, so this fails if the
+        // crop-origin correction is dropped.
+        assert!(!is_results_screen_tab(&label("Battle Log", 5), &frame));
+        assert!(OcrResultsProbe::new(FixedOcr(vec![label("Battle Log", 5)])).tab_visible(&frame, true));
+    }
+
+    #[test]
+    fn sweep_without_matches_is_false() {
+        assert!(!OcrResultsProbe::new(FixedOcr(Vec::new())).tab_visible(&frame(), true));
+    }
+
+    #[test]
+    fn sweeping_a_zero_sized_frame_is_false() {
+        // `crop_frame` rejects zero-sized frames, so the sweep reports nothing
+        // rather than treating the frame as showing the tab.
+        let empty = Frame { width: 0, height: 0, rgba: Vec::new() };
+        assert!(!OcrResultsProbe::new(FixedOcr(vec![label("Battle Log", 5)])).tab_visible(&empty, true));
     }
 
     #[test]

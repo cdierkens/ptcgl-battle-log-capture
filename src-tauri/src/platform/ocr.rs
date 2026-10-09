@@ -5,11 +5,6 @@
 //! engine compiles everywhere while only doing real work on macOS.
 
 #[cfg(target_os = "macos")]
-use std::io::Cursor;
-
-#[cfg(target_os = "macos")]
-use image::{ImageFormat, RgbaImage};
-#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
 use objc2::AnyThread;
@@ -21,6 +16,8 @@ use objc2_vision::{
     VNRequestTextRecognitionLevel,
 };
 
+#[cfg(target_os = "macos")]
+use crate::bmp::encode_bmp;
 use crate::ports::{Frame, TextMatch, TextRecognizer};
 
 /// Text recognizer backed by macOS Vision. On non-macOS platforms this
@@ -61,16 +58,13 @@ enum MatchKind {
 #[cfg(target_os = "macos")]
 impl VisionTextRecognizer {
     fn scan(&self, frame: &Frame, needles: &[String], kind: MatchKind) -> Vec<TextMatch> {
-        // Encode the raw RGBA frame as PNG so Vision can decode it.
-        let Some(rgba) = RgbaImage::from_raw(frame.width, frame.height, frame.rgba.clone()) else {
+        // Uncompressed BMP: the old PNG round-trip deflated every crop on every
+        // poll, which dominated the poll's cost.
+        let Some(bmp) = encode_bmp(frame) else {
             return Vec::new();
         };
-        let mut png = Vec::new();
-        if rgba.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).is_err() {
-            return Vec::new();
-        }
 
-        let data = NSData::with_bytes(&png);
+        let data = NSData::with_bytes(&bmp);
         let options = NSDictionary::<VNImageOption, AnyObject>::new();
         let handler = VNImageRequestHandler::initWithData_options(VNImageRequestHandler::alloc(), &data, &options);
 

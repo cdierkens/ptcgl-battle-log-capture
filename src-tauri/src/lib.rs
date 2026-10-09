@@ -1,3 +1,4 @@
+pub mod bmp;
 pub mod buttons;
 pub mod clipboard;
 pub mod commands;

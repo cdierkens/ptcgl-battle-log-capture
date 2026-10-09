@@ -50,6 +50,6 @@ export function isResultsState(state: null | string): boolean {
 }
 
 /** The overlay state a successful save produces. */
-export function logSavedState(state: string): boolean {
+export function logSavedState(state: null | string): boolean {
   return state === "Saved";
 }
