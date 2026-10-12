@@ -28,6 +28,7 @@ import type { Match, MatchesView } from "../lib/use-matches";
 
 import { matchRow, type MatchRow } from "../lib/match-row";
 import { deleteLog, revealLog } from "../lib/tauri";
+import { useNow } from "../lib/use-now";
 
 const RESULT_VARIANT = { "—": "secondary", L: "destructive", W: "default" } as const;
 
@@ -35,7 +36,7 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
   const [selected, setSelected] = useState<null | string>(null);
   const [pendingDelete, setPendingDelete] = useState<Match | null>(null);
   const [actionError, setActionError] = useState<null | string>(null);
-  const now = Date.now();
+  const now = useNow();
 
   if (matches.matches === null) {
     return matches.error === null ? (

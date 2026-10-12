@@ -26,11 +26,13 @@ interface MatchCardProps {
 /** The results-screen section above the tabs: save this match's Battle Log, or confirm it's saved. */
 export function MatchCard({ clipboardOn, focusPaste, latestFileName, overlay, playerName }: MatchCardProps) {
   const [manualPath, setManualPath] = useState<null | string>(null);
-  const savedPath = (overlay.autosaved ? overlay.path : manualPath) ?? latestFileName;
-
-  useEffect(() => {
+  const [seenState, setSeenState] = useState(overlay.state);
+  // A new results screen forgets the previous match's manual save.
+  if (overlay.state !== seenState) {
+    setSeenState(overlay.state);
     if (overlay.state === "Results") setManualPath(null);
-  }, [overlay.state]);
+  }
+  const savedPath = (overlay.autosaved ? overlay.path : manualPath) ?? latestFileName;
 
   return (
     <section aria-label="This match" className="border-b border-border bg-muted p-4">
@@ -58,7 +60,9 @@ function PasteForm({
   const textarea = useRef<HTMLTextAreaElement>(null);
   // Classify outcomes against the state when the response arrives, not when Save was clicked.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (focusPaste) textarea.current?.focus();

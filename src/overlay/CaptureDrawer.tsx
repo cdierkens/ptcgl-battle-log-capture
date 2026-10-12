@@ -21,12 +21,24 @@ export function CaptureDrawer() {
   const { error: historyError, history } = useStatusHistory();
   const [open, setOpen] = useState(false);
   const [focusPaste, setFocusPaste] = useState(false);
-  // `mounted` renders the panel and `shown` slides it in. The window grows before the
-  // slide-in and shrinks after the slide-out, so no transparent area blocks the game.
-  const [mounted, setMounted] = useState(false);
+  // `closing` keeps the panel mounted during the slide-out and `shown` slides it in. The window
+  // grows before the slide-in and shrinks after the slide-out, so no transparent area blocks the game.
+  const [closing, setClosing] = useState(false);
   const [shown, setShown] = useState(false);
   const [resizeError, setResizeError] = useState<null | string>(null);
   const previousState = useRef<null | string>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  // Closing starts the slide-out and forgets the paste focus request.
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (!open) {
+      setClosing(true);
+      setShown(false);
+      setFocusPaste(false);
+    }
+  }
+  // Derived from `open` so a stale queued `setClosing(false)` can't unmount a fresh open.
+  const mounted = open || closing;
 
   useEffect(() => {
     if (state === null) return;
@@ -36,13 +48,8 @@ export function CaptureDrawer() {
   }, [prompts, state]);
 
   useEffect(() => {
-    if (!open) setFocusPaste(false);
-  }, [open]);
-
-  useEffect(() => {
     if (open) {
       let cancelled = false;
-      setMounted(true);
       setDrawerOpen(true)
         .then(() => {
           setResizeError(null);
@@ -53,9 +60,8 @@ export function CaptureDrawer() {
         cancelled = true;
       };
     }
-    setShown(false);
     const timer = window.setTimeout(() => {
-      setMounted(false);
+      setClosing(false);
       setDrawerOpen(false)
         .then(() => setResizeError(null))
         .catch((err: unknown) => setResizeError(String(err)));
