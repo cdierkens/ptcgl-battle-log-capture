@@ -1,22 +1,30 @@
+//! The OS keychain. macOS uses the login Keychain; other platforms are stubbed.
+
 use crate::ports::{SecretError, SecretStore};
 
-/// The OS keychain. macOS uses the login Keychain; other platforms are stubbed.
-pub struct KeychainSecretStore;
+/// Entries are filed under `service`: the app's bundle identifier.
+pub struct KeychainSecretStore {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    service: String,
+}
 
-#[cfg(target_os = "macos")]
-const SERVICE: &str = "dev.dierkens.ptcgl-tracker";
+impl KeychainSecretStore {
+    pub fn new(service: impl Into<String>) -> Self {
+        Self { service: service.into() }
+    }
+}
 
 #[cfg(target_os = "macos")]
 impl KeychainSecretStore {
-    fn entry(account: &str) -> Result<keyring::Entry, SecretError> {
-        keyring::Entry::new(SERVICE, account).map_err(|e| SecretError::Store(e.to_string()))
+    fn entry(&self, account: &str) -> Result<keyring::Entry, SecretError> {
+        keyring::Entry::new(&self.service, account).map_err(|e| SecretError::Store(e.to_string()))
     }
 }
 
 #[cfg(target_os = "macos")]
 impl SecretStore for KeychainSecretStore {
     fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
-        match Self::entry(account)?.get_password() {
+        match self.entry(account)?.get_password() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(SecretError::Store(e.to_string())),
@@ -24,11 +32,11 @@ impl SecretStore for KeychainSecretStore {
     }
 
     fn set(&self, account: &str, secret: &str) -> Result<(), SecretError> {
-        Self::entry(account)?.set_password(secret).map_err(|e| SecretError::Store(e.to_string()))
+        self.entry(account)?.set_password(secret).map_err(|e| SecretError::Store(e.to_string()))
     }
 
     fn delete(&self, account: &str) -> Result<(), SecretError> {
-        match Self::entry(account)?.delete_credential() {
+        match self.entry(account)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(SecretError::Store(e.to_string())),
         }
@@ -58,7 +66,7 @@ mod tests {
     #[test]
     #[ignore]
     fn keychain_round_trip() {
-        let store = KeychainSecretStore;
+        let store = KeychainSecretStore::new("dev.dierkens.ptcgl-tracker.test");
         let account = format!("test-{}", std::process::id());
         store.set(&account, "s3cret").unwrap();
         assert_eq!(store.get(&account).unwrap().as_deref(), Some("s3cret"));

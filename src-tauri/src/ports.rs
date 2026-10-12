@@ -72,6 +72,28 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, account: &str) -> Result<(), SecretError>;
 }
 
+/// In-memory `SecretStore` for tests.
+#[cfg(test)]
+#[derive(Default)]
+pub struct MemSecretStore(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+#[cfg(test)]
+impl SecretStore for MemSecretStore {
+    fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
+        Ok(self.0.lock().unwrap().get(account).cloned())
+    }
+
+    fn set(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+        self.0.lock().unwrap().insert(account.to_owned(), secret.to_owned());
+        Ok(())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.0.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+
 /// Screen-recording authorization (macOS). On other platforms this is always
 /// authorized, so the concrete implementation reports `true`.
 pub trait ScreenCaptureAccess {
@@ -104,4 +126,20 @@ pub trait TextRecognizer {
 
     /// Pay any one-time startup cost. Blocks, so run it off the engine thread.
     fn warm_up(&self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mem_secret_store_round_trips_and_tolerates_missing_deletes() {
+        let store = MemSecretStore::default();
+        assert_eq!(store.get("pokedojo").unwrap(), None);
+        store.set("pokedojo", "pdj_1").unwrap();
+        assert_eq!(store.get("pokedojo").unwrap().as_deref(), Some("pdj_1"));
+        store.delete("pokedojo").unwrap();
+        store.delete("pokedojo").unwrap();
+        assert_eq!(store.get("pokedojo").unwrap(), None);
+    }
 }

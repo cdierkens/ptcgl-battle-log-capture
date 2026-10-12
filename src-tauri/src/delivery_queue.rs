@@ -1,15 +1,16 @@
 //! Persistent queue of deliveries: one saved log synced to one destination.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// Transient failures stop retrying this long after the first one.
-pub const GIVE_UP_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+const GIVE_UP_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 const FIRST_RETRY: Duration = Duration::from_secs(30);
 const MAX_RETRY: Duration = Duration::from_secs(60 * 60);
 const SCHEMA_VERSION: i32 = 1;
+const FILE_NAME: &str = "sync.sqlite";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryState {
@@ -30,15 +31,17 @@ impl DeliveryState {
         }
     }
 
-    fn parse(s: &str) -> rusqlite::Result<Self> {
-        match s {
-            "held" => Ok(Self::Held),
-            "pending" => Ok(Self::Pending),
-            "synced" => Ok(Self::Synced),
-            "failed" => Ok(Self::Failed),
-            other => Err(rusqlite::Error::InvalidColumnType(0, other.to_owned(), rusqlite::types::Type::Text)),
-        }
+    fn parse(s: &str) -> Option<Self> {
+        [Self::Held, Self::Pending, Self::Synced, Self::Failed].into_iter().find(|state| state.as_str() == s)
     }
+}
+
+/// When a newly queued delivery may be sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Release {
+    Now,
+    /// Saved from the results screen: held until it goes away.
+    AfterResults,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,15 +51,21 @@ pub struct Delivery {
     pub destination: String,
     pub state: DeliveryState,
     pub attempts: u32,
+    /// Unix milliseconds; only meaningful while `Pending`.
+    pub next_attempt_at: i64,
     pub last_error: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("delivery queue: {0}")]
-pub struct QueueError(#[from] rusqlite::Error);
+pub enum QueueError {
+    #[error("delivery queue: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("delivery queue folder: {0}")]
+    Io(#[from] std::io::Error),
+}
 
 /// Delay before retry number `attempts` (1-based): 30s doubling, capped at 1h.
-pub fn backoff(attempts: u32) -> Duration {
+fn backoff(attempts: u32) -> Duration {
     let doublings = attempts.saturating_sub(1).min(16);
     FIRST_RETRY.saturating_mul(1 << doublings).min(MAX_RETRY)
 }
@@ -67,21 +76,28 @@ pub struct DeliveryQueue {
 }
 
 impl DeliveryQueue {
+    /// `<app data>/sync.sqlite`: app state, not the player's data (ADR 0002).
+    pub fn resolve_path(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+        use tauri::Manager;
+        Ok(app.path().app_data_dir()?.join(FILE_NAME))
+    }
+
     pub fn open(path: &Path) -> Result<Self, QueueError> {
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent)?;
         }
         Self::init(Connection::open(path)?)
     }
 
-    pub fn open_in_memory() -> Result<Self, QueueError> {
+    #[cfg(test)]
+    pub(crate) fn open_in_memory() -> Result<Self, QueueError> {
         Self::init(Connection::open_in_memory()?)
     }
 
     fn init(conn: Connection) -> Result<Self, QueueError> {
         let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version < SCHEMA_VERSION {
-            conn.execute_batch(
+            conn.execute_batch(&format!(
                 "CREATE TABLE IF NOT EXISTS deliveries (
                     log TEXT NOT NULL,
                     destination TEXT NOT NULL,
@@ -92,15 +108,18 @@ impl DeliveryQueue {
                     last_error TEXT,
                     PRIMARY KEY (log, destination)
                 );
-                PRAGMA user_version = 1;",
-            )?;
+                PRAGMA user_version = {SCHEMA_VERSION};"
+            ))?;
         }
         Ok(Self { conn })
     }
 
     /// Queue `log` for `destination`, restarting any earlier delivery of it.
-    pub fn enqueue(&self, log: &str, destination: &str, held: bool) -> Result<(), QueueError> {
-        let state = if held { DeliveryState::Held } else { DeliveryState::Pending };
+    pub fn enqueue(&self, log: &str, destination: &str, release: Release) -> Result<(), QueueError> {
+        let state = match release {
+            Release::Now => DeliveryState::Pending,
+            Release::AfterResults => DeliveryState::Held,
+        };
         self.conn.execute(
             "INSERT INTO deliveries (log, destination, state) VALUES (?1, ?2, ?3)
              ON CONFLICT (log, destination) DO UPDATE SET
@@ -113,13 +132,19 @@ impl DeliveryQueue {
 
     /// The results screen went away: `log` can no longer be undone.
     pub fn release_held(&self, log: &str) -> Result<(), QueueError> {
-        self.conn.execute("UPDATE deliveries SET state = 'pending' WHERE log = ?1 AND state = 'held'", [log])?;
+        self.conn.execute(
+            "UPDATE deliveries SET state = ?2 WHERE log = ?1 AND state = ?3",
+            params![log, DeliveryState::Pending.as_str(), DeliveryState::Held.as_str()],
+        )?;
         Ok(())
     }
 
     /// Undo: drop deliveries of `log` that never left the app.
     pub fn drop_held(&self, log: &str) -> Result<(), QueueError> {
-        self.conn.execute("DELETE FROM deliveries WHERE log = ?1 AND state = 'held'", [log])?;
+        self.conn.execute(
+            "DELETE FROM deliveries WHERE log = ?1 AND state = ?2",
+            params![log, DeliveryState::Held.as_str()],
+        )?;
         Ok(())
     }
 
@@ -136,7 +161,15 @@ impl DeliveryQueue {
 
     /// Pending deliveries whose next attempt is due, oldest first.
     pub fn due(&self, now: i64) -> Result<Vec<Delivery>, QueueError> {
-        self.select("WHERE state = 'pending' AND next_attempt_at <= ?1 ORDER BY next_attempt_at, rowid", params![now])
+        self.select(
+            "WHERE state = ?1 AND next_attempt_at <= ?2 ORDER BY next_attempt_at, rowid",
+            params![DeliveryState::Pending.as_str(), now],
+        )
+    }
+
+    /// Every delivery, for the match list's sync status.
+    pub fn all(&self) -> Result<Vec<Delivery>, QueueError> {
+        self.select("ORDER BY log, destination", [])
     }
 
     pub fn for_log(&self, log: &str) -> Result<Vec<Delivery>, QueueError> {
@@ -144,11 +177,7 @@ impl DeliveryQueue {
     }
 
     pub fn mark_synced(&self, log: &str, destination: &str) -> Result<(), QueueError> {
-        self.conn.execute(
-            "UPDATE deliveries SET state = 'synced', last_error = NULL WHERE log = ?1 AND destination = ?2",
-            params![log, destination],
-        )?;
-        Ok(())
+        self.set_state(log, destination, DeliveryState::Synced, None)
     }
 
     /// A transient failure: retry with backoff until `GIVE_UP_AFTER`, then fail.
@@ -178,24 +207,40 @@ impl DeliveryQueue {
 
     /// A permanent failure (bad token, rejected request): no more retries.
     pub fn mark_failed(&self, log: &str, destination: &str, error: &str) -> Result<(), QueueError> {
+        self.set_state(log, destination, DeliveryState::Failed, Some(error))
+    }
+
+    fn set_state(
+        &self,
+        log: &str,
+        destination: &str,
+        state: DeliveryState,
+        error: Option<&str>,
+    ) -> Result<(), QueueError> {
+        let counts_attempt = state == DeliveryState::Failed;
         self.conn.execute(
-            "UPDATE deliveries SET state = 'failed', attempts = attempts + 1, last_error = ?3
+            "UPDATE deliveries SET state = ?3, attempts = attempts + ?4, last_error = ?5
              WHERE log = ?1 AND destination = ?2",
-            params![log, destination, error],
+            params![log, destination, state.as_str(), counts_attempt as u32, error],
         )?;
         Ok(())
     }
 
     fn select(&self, clause: &str, params: impl rusqlite::Params) -> Result<Vec<Delivery>, QueueError> {
-        let sql = format!("SELECT log, destination, state, attempts, last_error FROM deliveries {clause}");
+        let sql =
+            format!("SELECT log, destination, state, attempts, next_attempt_at, last_error FROM deliveries {clause}");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(params, |r| {
+            let state: String = r.get(2)?;
             Ok(Delivery {
                 log: r.get(0)?,
                 destination: r.get(1)?,
-                state: DeliveryState::parse(&r.get::<_, String>(2)?)?,
+                state: DeliveryState::parse(&state).ok_or_else(|| {
+                    rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, state.into())
+                })?,
                 attempts: r.get(3)?,
-                last_error: r.get(4)?,
+                next_attempt_at: r.get(4)?,
+                last_error: r.get(5)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -229,7 +274,7 @@ mod tests {
     #[test]
     fn pending_deliveries_are_due_at_once() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         let due = q.due(0).unwrap();
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].log, "a.txt");
@@ -239,7 +284,7 @@ mod tests {
     #[test]
     fn held_deliveries_wait_until_released() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", true).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::AfterResults).unwrap();
         assert!(q.due(0).unwrap().is_empty());
         q.release_held("a.txt").unwrap();
         assert_eq!(q.due(0).unwrap().len(), 1);
@@ -248,8 +293,8 @@ mod tests {
     #[test]
     fn undo_drops_only_held_deliveries() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", true).unwrap();
-        q.enqueue("a.txt", "court", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::AfterResults).unwrap();
+        q.enqueue("a.txt", "court", Release::Now).unwrap();
         q.drop_held("a.txt").unwrap();
         assert_eq!(state(&q, "a.txt", "pokedojo"), None);
         assert_eq!(state(&q, "a.txt", "court"), Some(Pending));
@@ -258,18 +303,19 @@ mod tests {
     #[test]
     fn transient_failures_back_off() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         q.mark_retry("a.txt", "pokedojo", "timeout", 1_000).unwrap();
         assert!(q.due(1_000).unwrap().is_empty());
         let due = q.due(1_000 + 30_000).unwrap();
         assert_eq!(due[0].attempts, 1);
+        assert_eq!(due[0].next_attempt_at, 31_000);
         assert_eq!(due[0].last_error.as_deref(), Some("timeout"));
     }
 
     #[test]
     fn transient_failures_give_up_after_a_day() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         q.mark_retry("a.txt", "pokedojo", "503", 0).unwrap();
         q.mark_retry("a.txt", "pokedojo", "503", 23 * HOUR).unwrap();
         assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Pending));
@@ -281,7 +327,7 @@ mod tests {
     #[test]
     fn permanent_failures_stop_at_once() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         q.mark_failed("a.txt", "pokedojo", "401").unwrap();
         assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Failed));
         assert!(q.due(i64::MAX).unwrap().is_empty());
@@ -290,7 +336,7 @@ mod tests {
     #[test]
     fn synced_deliveries_leave_the_queue() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         q.mark_synced("a.txt", "pokedojo").unwrap();
         assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Synced));
         assert!(q.due(i64::MAX).unwrap().is_empty());
@@ -299,10 +345,10 @@ mod tests {
     #[test]
     fn enqueueing_again_restarts_a_failed_delivery() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         q.mark_retry("a.txt", "pokedojo", "503", 0).unwrap();
         q.mark_failed("a.txt", "pokedojo", "401").unwrap();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         let due = q.due(0).unwrap();
         assert_eq!(due[0].attempts, 0);
         assert_eq!(due[0].last_error, None);
@@ -311,9 +357,9 @@ mod tests {
     #[test]
     fn deleting_a_log_or_destination_forgets_its_deliveries() {
         let q = queue();
-        q.enqueue("a.txt", "pokedojo", false).unwrap();
-        q.enqueue("b.txt", "pokedojo", false).unwrap();
-        q.enqueue("b.txt", "court", false).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
+        q.enqueue("b.txt", "pokedojo", Release::Now).unwrap();
+        q.enqueue("b.txt", "court", Release::Now).unwrap();
         q.forget_log("a.txt").unwrap();
         assert!(q.for_log("a.txt").unwrap().is_empty());
         q.remove_destination("pokedojo").unwrap();
@@ -323,12 +369,22 @@ mod tests {
     }
 
     #[test]
+    fn all_lists_every_delivery_for_the_match_list() {
+        let q = queue();
+        q.enqueue("b.txt", "pokedojo", Release::AfterResults).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
+        q.mark_synced("a.txt", "pokedojo").unwrap();
+        let all: Vec<_> = q.all().unwrap().into_iter().map(|d| (d.log, d.state)).collect();
+        assert_eq!(all, [("a.txt".to_owned(), Synced), ("b.txt".to_owned(), Held)]);
+    }
+
+    #[test]
     fn the_queue_survives_reopening() {
         let dir = std::env::temp_dir().join(format!("ptcgl-queue-{}", std::process::id()));
         let path = dir.join("sync.sqlite");
         {
             let q = DeliveryQueue::open(&path).unwrap();
-            q.enqueue("a.txt", "pokedojo", false).unwrap();
+            q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         }
         let q = DeliveryQueue::open(&path).unwrap();
         assert_eq!(q.due(0).unwrap().len(), 1);
