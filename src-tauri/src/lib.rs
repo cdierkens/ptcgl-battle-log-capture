@@ -5,6 +5,7 @@ pub mod commands;
 pub mod coords;
 pub mod dedupe;
 pub mod delivery_queue;
+pub mod destinations;
 pub mod detection;
 pub mod diagnostics;
 pub mod engine;
@@ -27,11 +28,13 @@ pub fn run() {
     use std::sync::{mpsc, Arc, Mutex, RwLock};
     use tauri::Manager;
 
+    use crate::delivery_queue::SharedQueue;
     use crate::overlay_state::OverlayState;
+    use crate::platform::keychain::KeychainSecretStore;
     use crate::platform::overlay::TauriOverlayPresenter;
     use crate::platform::permission::ScreenRecordingAccess;
     use crate::platform::store::FsLogStore;
-    use crate::ports::{OverlayPresenter, ScreenCaptureAccess};
+    use crate::ports::{OverlayPresenter, ScreenCaptureAccess, SecretStore};
     use crate::settings::{SettingsPaths, SharedSettings};
     use crate::sink::{LogSink, StoreLogSink};
 
@@ -58,6 +61,11 @@ pub fn run() {
             commands::get_diagnostics,
             commands::is_first_run,
             commands::set_drawer_open,
+            commands::preview_destination,
+            commands::import_destination,
+            commands::set_destination_enabled,
+            commands::remove_destination,
+            commands::open_token_page,
         ])
         // The drawer is the everyday UI; closing the main window only hides it (⌘Q quits).
         .on_window_event(|window, event| {
@@ -84,6 +92,10 @@ pub fn run() {
             app.manage(shared.clone());
             let sink: Arc<dyn LogSink> = Arc::new(StoreLogSink::new(FsLogStore::new(shared.clone())));
             app.manage(sink.clone());
+            let secrets: Arc<dyn SecretStore> = Arc::new(KeychainSecretStore::new(&app.config().identifier));
+            app.manage(secrets);
+            let queue: SharedQueue = Arc::new(Mutex::new(open_queue(app.handle())?));
+            app.manage(queue);
             let (events, inbox) = mpsc::channel();
             app.manage(events);
             let handle = app.handle().clone();
@@ -98,6 +110,19 @@ pub fn run() {
                 show_main(_app);
             }
         });
+}
+
+/// Falls back to an in-memory queue so a broken sync database never stops logs being saved.
+fn open_queue(app: &tauri::AppHandle) -> Result<delivery_queue::DeliveryQueue, delivery_queue::QueueError> {
+    use delivery_queue::DeliveryQueue;
+
+    let opened = DeliveryQueue::resolve_path(app)
+        .map_err(|e| e.to_string())
+        .and_then(|path| DeliveryQueue::open(&path).map_err(|e| e.to_string()));
+    opened.or_else(|e| {
+        tracing::error!("sync queue unavailable, deliveries won't survive a restart: {e}");
+        DeliveryQueue::open_in_memory()
+    })
 }
 
 fn show_main(app: &tauri::AppHandle) {

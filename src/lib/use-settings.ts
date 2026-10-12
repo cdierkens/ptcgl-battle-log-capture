@@ -40,8 +40,8 @@ export function useSettings(): SettingsView {
       setSaving(true);
       setError(null);
       return saveSettings(next)
-        .then(() => {
-          setSettings(next);
+        .then((saved) => {
+          setSettings(saved);
           return true;
         })
         .catch((err: unknown) => {

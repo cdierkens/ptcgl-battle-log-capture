@@ -1,6 +1,7 @@
 //! Persistent queue of deliveries: one saved log synced to one destination.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -78,6 +79,14 @@ fn backoff(attempts: u32) -> Duration {
     FIRST_RETRY.saturating_mul(1 << doublings).min(MAX_RETRY)
 }
 
+/// Shared by commands and the delivery worker; `Connection` isn't `Sync`.
+pub type SharedQueue = Arc<Mutex<DeliveryQueue>>;
+
+/// A poisoned lock still holds a usable connection.
+pub fn lock(queue: &SharedQueue) -> MutexGuard<'_, DeliveryQueue> {
+    queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Times are Unix milliseconds, passed in so callers and tests own the clock.
 pub struct DeliveryQueue {
     conn: Connection,
@@ -97,8 +106,8 @@ impl DeliveryQueue {
         Self::init(Connection::open(path)?)
     }
 
-    #[cfg(test)]
-    pub(crate) fn open_in_memory() -> Result<Self, QueueError> {
+    /// Also the fallback when the file can't be opened, so saving logs never depends on sync.
+    pub fn open_in_memory() -> Result<Self, QueueError> {
         Self::init(Connection::open_in_memory()?)
     }
 
