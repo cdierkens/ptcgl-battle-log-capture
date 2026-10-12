@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod commands;
 pub mod coords;
 pub mod dedupe;
+pub mod delivery_queue;
 pub mod detection;
 pub mod diagnostics;
 pub mod engine;

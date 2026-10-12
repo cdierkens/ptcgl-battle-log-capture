@@ -56,6 +56,22 @@ pub trait OverlayPresenter: Send + Sync {
     fn hide_shield(&self) -> Result<(), OverlayError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SecretError {
+    #[error("this platform has no secret store")]
+    Unsupported,
+    #[error("secret store failed: {0}")]
+    Store(String),
+}
+
+/// OS keychain for destination tokens, keyed by an app-chosen account name.
+pub trait SecretStore: Send + Sync {
+    fn get(&self, account: &str) -> Result<Option<String>, SecretError>;
+    fn set(&self, account: &str, secret: &str) -> Result<(), SecretError>;
+    /// Deleting a missing entry is not an error.
+    fn delete(&self, account: &str) -> Result<(), SecretError>;
+}
+
 /// Screen-recording authorization (macOS). On other platforms this is always
 /// authorized, so the concrete implementation reports `true`.
 pub trait ScreenCaptureAccess {
