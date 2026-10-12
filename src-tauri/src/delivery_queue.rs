@@ -108,6 +108,10 @@ impl DeliveryQueue {
                     last_error TEXT,
                     PRIMARY KEY (log, destination)
                 );
+                CREATE TABLE IF NOT EXISTS destination_attention (
+                    destination TEXT PRIMARY KEY,
+                    reason TEXT NOT NULL
+                );
                 PRAGMA user_version = {SCHEMA_VERSION};"
             ))?;
         }
@@ -156,13 +160,39 @@ impl DeliveryQueue {
 
     pub fn remove_destination(&self, destination: &str) -> Result<(), QueueError> {
         self.conn.execute("DELETE FROM deliveries WHERE destination = ?1", [destination])?;
+        self.clear_attention(destination)
+    }
+
+    /// The destination rejected its token: pause it until the player fixes it.
+    pub fn flag_attention(&self, destination: &str, reason: &str) -> Result<(), QueueError> {
+        self.conn.execute(
+            "INSERT INTO destination_attention (destination, reason) VALUES (?1, ?2)
+             ON CONFLICT (destination) DO UPDATE SET reason = excluded.reason",
+            params![destination, reason],
+        )?;
         Ok(())
     }
 
-    /// Pending deliveries whose next attempt is due, oldest first.
+    /// A new token was saved: resume the destination's paused deliveries.
+    pub fn clear_attention(&self, destination: &str) -> Result<(), QueueError> {
+        self.conn.execute("DELETE FROM destination_attention WHERE destination = ?1", [destination])?;
+        Ok(())
+    }
+
+    /// Destinations that need attention, with the reason, for the drawer badge.
+    pub fn needing_attention(&self) -> Result<Vec<(String, String)>, QueueError> {
+        let mut stmt =
+            self.conn.prepare("SELECT destination, reason FROM destination_attention ORDER BY destination")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Pending deliveries whose next attempt is due, oldest first. Paused destinations are skipped.
     pub fn due(&self, now: i64) -> Result<Vec<Delivery>, QueueError> {
         self.select(
-            "WHERE state = ?1 AND next_attempt_at <= ?2 ORDER BY next_attempt_at, rowid",
+            "WHERE state = ?1 AND next_attempt_at <= ?2
+               AND destination NOT IN (SELECT destination FROM destination_attention)
+             ORDER BY next_attempt_at, rowid",
             params![DeliveryState::Pending.as_str(), now],
         )
     }
@@ -205,7 +235,7 @@ impl DeliveryQueue {
         Ok(())
     }
 
-    /// A permanent failure (bad token, rejected request): no more retries.
+    /// The destination rejected this log (a 4xx other than auth): no more retries.
     pub fn mark_failed(&self, log: &str, destination: &str, error: &str) -> Result<(), QueueError> {
         self.set_state(log, destination, DeliveryState::Failed, Some(error))
     }
@@ -328,9 +358,32 @@ mod tests {
     fn permanent_failures_stop_at_once() {
         let q = queue();
         q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
-        q.mark_failed("a.txt", "pokedojo", "401").unwrap();
+        q.mark_failed("a.txt", "pokedojo", "422").unwrap();
         assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Failed));
         assert!(q.due(i64::MAX).unwrap().is_empty());
+    }
+
+    #[test]
+    fn flagged_destinations_pause_until_cleared() {
+        let q = queue();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
+        q.enqueue("a.txt", "court", Release::Now).unwrap();
+        q.flag_attention("pokedojo", "401 Unauthorized").unwrap();
+        let due: Vec<_> = q.due(0).unwrap().into_iter().map(|d| d.destination).collect();
+        assert_eq!(due, ["court"]);
+        assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Pending));
+        assert_eq!(q.needing_attention().unwrap(), [("pokedojo".to_owned(), "401 Unauthorized".to_owned())]);
+        q.clear_attention("pokedojo").unwrap();
+        assert_eq!(q.due(0).unwrap().len(), 2);
+        assert!(q.needing_attention().unwrap().is_empty());
+    }
+
+    #[test]
+    fn removing_a_destination_clears_its_flag() {
+        let q = queue();
+        q.flag_attention("pokedojo", "403").unwrap();
+        q.remove_destination("pokedojo").unwrap();
+        assert!(q.needing_attention().unwrap().is_empty());
     }
 
     #[test]
@@ -347,7 +400,7 @@ mod tests {
         let q = queue();
         q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         q.mark_retry("a.txt", "pokedojo", "503", 0).unwrap();
-        q.mark_failed("a.txt", "pokedojo", "401").unwrap();
+        q.mark_failed("a.txt", "pokedojo", "422").unwrap();
         q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
         let due = q.due(0).unwrap();
         assert_eq!(due[0].attempts, 0);
