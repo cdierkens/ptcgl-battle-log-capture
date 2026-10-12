@@ -4,26 +4,32 @@ Desktop companion ("PTCGL Tracker") that watches Pokémon TCG Live, spots the
 match results screen, and saves the battle log. Tauri 2 (Rust) + React. Public,
 MIT. Sibling of `@dierkens.dev/ptcgl-battle-log-parser`.
 
-## Status: planning
+## Status: standalone
 
-The code is a `git subtree split` of `pokedojo.pro/apps/battle-log-capture`
-and still builds only inside that monorepo (`workspace:*` / `catalog:` deps,
-`@pokedojo/*` imports). Do not try to make it build piecemeal. The
-extraction is specced in `docs/specs/2026-10-11-capture-app-extraction.md`
-and is still being grilled. Implement only once that spec is approved.
+Extracted from `pokedojo.pro/apps/battle-log-capture` per
+`docs/specs/2026-10-11-capture-app-extraction.md`. Builds on its own; macOS
+only for now (Windows compiles in CI with stubbed capture/OCR).
 
-## Conventions (target state)
+## Commands
+
+- `pnpm install`, `pnpm tauri dev`
+- `pnpm run verify`: typecheck, lint, test, build. Run it before committing.
+- In `src-tauri/`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. Cargo needs `dist/` from `pnpm build`.
+- Dependencies are pinned exactly. pnpm 11 rejects releases younger than a day.
+
+## Conventions
 
 - Plain TypeScript + React. **No Effect**, no `@pokedojo/*`, no PokeDojo rules.
 - Parsing: npm `@dierkens.dev/ptcgl-battle-log-parser` (`Result` union, no throw).
-- UI: shadcn/ui on Tailwind v4 (CSS-first theme tokens).
+- UI: shadcn/ui on Tailwind v4. Use shadcn's standard tokens only (ADR 0003), and leave `components/ui/*` as shadcn generates it.
 - Bundle identifier `dev.dierkens.ptcgl-tracker`. It is permanent once binaries ship.
 - Conventional commits.
 
 ## Docs
 
+- `GLOSSARY.md`: domain vocabulary. Use its terms; avoid the listed synonyms.
 - `docs/specs/`: specs. Draft until grilled, then approved.
-- `docs/adr/`: decisions.
+- `docs/adr/`: decisions. ADR 0001 (no game automation) binds every feature.
 
 ## Agent skills
 

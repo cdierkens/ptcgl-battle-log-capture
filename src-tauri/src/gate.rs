@@ -1,14 +1,10 @@
 /// Coarse "does this clipboard text look like a battle log?" gate. The Rust
 /// side only accepts text whose first non-blank line is a recognized phase
 /// header AND which contains at least one "- " sub-entry line. The authoritative
-/// validator is the TypeScript parser in @pokedojo/logic; this just avoids
+/// validator is the TypeScript parser in @dierkens.dev/ptcgl-battle-log-parser; this just avoids
 /// saving arbitrary clipboard content.
 pub fn looks_like_battle_log(text: &str) -> bool {
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect();
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
 
     if lines.is_empty() {
         return false;

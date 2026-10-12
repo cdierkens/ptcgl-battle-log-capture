@@ -7,18 +7,18 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::{ClipboardAccess, ClipboardProbe};
-use crate::logs::{self, LogSummary};
-use crate::platform::clipboard::SystemClipboard;
-use crate::overlay_state::{OverlayEvent, OverlayState};
 use crate::diagnostics::Diagnostics;
+use crate::logs::{self, LogSummary};
+use crate::overlay_state::{OverlayEvent, OverlayState};
+use crate::platform::clipboard::SystemClipboard;
 use crate::platform::permission::ScreenRecordingAccess;
 use crate::ports::{OverlayPresenter, ScreenCaptureAccess};
-use crate::settings::{self, Settings, SharedSettings};
+use crate::settings::{self, Settings, SettingsPaths, SharedSettings};
 use crate::sink::{LogSink, SubmitError, SubmitOutcome};
 
 #[tauri::command]
-pub fn is_first_run() -> bool {
-    !settings::exists()
+pub fn is_first_run(paths: State<'_, SettingsPaths>) -> bool {
+    !paths.exists()
 }
 
 /// Broadcast so every window reflects the latest settings.
@@ -36,7 +36,7 @@ pub fn save_settings(s: Settings, app: AppHandle) -> Result<(), String> {
 
 /// The one write path for settings (Settings tab, setup flow): persist, share, broadcast.
 pub fn apply_settings(app: &AppHandle, next: Settings) -> Result<(), String> {
-    settings::save(&next)?;
+    app.state::<SettingsPaths>().save(&next)?;
     settings::replace(&app.state::<SharedSettings>(), next.clone());
     if let Err(e) = app.emit(SETTINGS_CHANGED_EVENT, &next) {
         tracing::warn!("failed to emit settings changed: {e}");

@@ -512,7 +512,12 @@ mod tests {
         EngineCtx::new(OverlayState::NoWindow, OWN_PID)
     }
 
-    fn poll<P: OverlayPresenter>(ctx: &mut EngineCtx, probe: &ScriptedProbe, focus: &FixedFocus, presenter: &P) -> bool {
+    fn poll<P: OverlayPresenter>(
+        ctx: &mut EngineCtx,
+        probe: &ScriptedProbe,
+        focus: &FixedFocus,
+        presenter: &P,
+    ) -> bool {
         ctx.poll(&FixedWindow(Some(game())), &BlankFrames, probe, focus, presenter)
     }
 

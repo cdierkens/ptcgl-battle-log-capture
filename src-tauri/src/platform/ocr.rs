@@ -12,8 +12,7 @@ use objc2::AnyThread;
 use objc2_foundation::{NSArray, NSData, NSDictionary};
 #[cfg(target_os = "macos")]
 use objc2_vision::{
-    VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
-    VNRequestTextRecognitionLevel,
+    VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel,
 };
 
 #[cfg(target_os = "macos")]
@@ -113,16 +112,9 @@ impl VisionTextRecognizer {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-impl TextRecognizer for VisionTextRecognizer {
-    fn find_text(&self, _frame: &Frame, _needles: &[String]) -> Vec<TextMatch> {
-        Vec::new()
-    }
-}
-
 /// Trim surrounding whitespace and lowercase, so matching is case-insensitive
 /// (PTCG Live uses mixed casing across locales).
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn normalize(s: &str) -> String {
     s.trim().to_lowercase()
 }
@@ -130,7 +122,7 @@ fn normalize(s: &str) -> String {
 /// True when `text` is one of the needles. Matching is whole-string
 /// (case-insensitive) so a stray fragment that happens to appear inside a
 /// needle — e.g. "LO" inside "Battle Log" — cannot be mistaken for the button.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn matches_needle(text: &str, needles: &[String]) -> bool {
     let norm = normalize(text);
     needles.iter().any(|n| *n == norm)
@@ -141,7 +133,7 @@ fn matches_needle(text: &str, needles: &[String]) -> bool {
 /// merges with neighbouring text (e.g. "cdierkens Export Copiedlondro") and
 /// misreads the trailing "!" as a letter. Safe here because the needle is a
 /// distinctive multi-word phrase.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn matches_substring(text: &str, needles: &[String]) -> bool {
     let hay = alphanumeric(text);
     needles.iter().any(|n| hay.contains(&alphanumeric(n)))
@@ -149,7 +141,7 @@ fn matches_substring(text: &str, needles: &[String]) -> bool {
 
 /// Lowercase and keep only alphanumeric characters, dropping punctuation and
 /// whitespace so OCR noise (e.g. "!" read as "l") does not break a match.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn alphanumeric(s: &str) -> String {
     s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
 }

@@ -4,8 +4,8 @@ pub mod clipboard;
 pub mod commands;
 pub mod coords;
 pub mod dedupe;
-pub mod diagnostics;
 pub mod detection;
+pub mod diagnostics;
 pub mod engine;
 pub mod events;
 pub mod focus;
@@ -31,7 +31,7 @@ pub fn run() {
     use crate::platform::permission::ScreenRecordingAccess;
     use crate::platform::store::FsLogStore;
     use crate::ports::{OverlayPresenter, ScreenCaptureAccess};
-    use crate::settings::SharedSettings;
+    use crate::settings::{SettingsPaths, SharedSettings};
     use crate::sink::{LogSink, StoreLogSink};
 
     tauri::Builder::default()
@@ -68,16 +68,18 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let guard = logging::init();
+            let paths = SettingsPaths::resolve(app.handle())?;
+            let guard = logging::init(&paths.log_folder.join("logs"));
             app.manage(guard);
             let state_cell = Arc::new(Mutex::new(OverlayState::NoWindow));
             app.manage(state_cell.clone());
             let presenter: Arc<dyn OverlayPresenter> = Arc::new(TauriOverlayPresenter::new(app.handle())?);
             app.manage(presenter.clone());
-            if !settings::exists() || !ScreenRecordingAccess.is_authorized() {
+            if !paths.exists() || !ScreenRecordingAccess.is_authorized() {
                 show_main(app.handle());
             }
-            let shared: SharedSettings = Arc::new(RwLock::new(settings::load()));
+            let shared: SharedSettings = Arc::new(RwLock::new(paths.load()));
+            app.manage(paths);
             app.manage(shared.clone());
             let sink: Arc<dyn LogSink> = Arc::new(StoreLogSink::new(FsLogStore::new(shared.clone())));
             app.manage(sink.clone());

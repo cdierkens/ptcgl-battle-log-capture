@@ -15,7 +15,10 @@ pub enum OverlayState {
     NoWindow,
     InMatch,
     /// `continue_rect` is window-local, so the shield follows window moves.
-    Results { shield: ShieldStatus, continue_rect: Option<ScreenRect> },
+    Results {
+        shield: ShieldStatus,
+        continue_rect: Option<ScreenRect>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

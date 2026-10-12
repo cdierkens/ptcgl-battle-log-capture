@@ -64,19 +64,14 @@ pub fn list_logs(dir: &Path) -> Result<Vec<LogSummary>, String> {
 /// Because `fs::canonicalize` requires the file to exist, a missing file
 /// surfaces as a clean "not found" error rather than as an escape.
 pub fn resolve_log_path(dir: &Path, file_name: &str) -> Result<PathBuf, String> {
-    if file_name.is_empty()
-        || file_name.contains('/')
-        || file_name.contains('\\')
-        || file_name.contains("..")
-    {
+    if file_name.is_empty() || file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
         return Err(format!("invalid log file name: {file_name}"));
     }
     let path = dir.join(file_name);
     // Canonicalize both sides so the containment check resolves symlinks and
     // redundant separators instead of comparing path components lexically
     // (which would let a symlink or `..`-containing path slip through).
-    let canon_dir =
-        fs::canonicalize(dir).map_err(|e| format!("output directory unavailable: {e}"))?;
+    let canon_dir = fs::canonicalize(dir).map_err(|e| format!("output directory unavailable: {e}"))?;
     let canon_path = fs::canonicalize(&path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             format!("log not found: {file_name}")
@@ -134,20 +129,14 @@ pub fn file_name_of(path: &str) -> Result<String, String> {
 #[cfg(unix)]
 fn open_no_follow(path: &Path) -> Result<fs::File, String> {
     use std::os::unix::fs::OpenOptionsExt;
-    fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|e| open_err(path, e))
+    fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path).map_err(|e| open_err(path, e))
 }
 
 /// Non-Unix fallback: no `O_NOFOLLOW`, so pre-check via a no-follow stat that
 /// the path is a regular file (not a symlink) before opening it.
 #[cfg(not(unix))]
 fn open_no_follow(path: &Path) -> Result<fs::File, String> {
-    let is_regular = fs::symlink_metadata(path)
-        .map(|m| m.file_type().is_file())
-        .unwrap_or(false);
+    let is_regular = fs::symlink_metadata(path).map(|m| m.file_type().is_file()).unwrap_or(false);
     if !is_regular {
         return Err(format!("log not available: {}", path.display()));
     }
@@ -175,10 +164,8 @@ mod tests {
 
     impl TempDir {
         fn new(tag: &str) -> Self {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0);
+            let nanos =
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
             let path = std::env::temp_dir().join(format!("ptcgl-logs-{tag}-{nanos}"));
             fs::create_dir_all(&path).unwrap();
             Self { path }
@@ -286,11 +273,8 @@ mod tests {
         fs::write(dir.path().join("ptcgl-2.txt"), "real").unwrap();
         // The link target is inside the dir, so containment passes; the
         // O_NOFOLLOW open must still refuse to follow the link.
-        std::os::unix::fs::symlink(
-            dir.path().join("ptcgl-2.txt"),
-            dir.path().join("ptcgl-1700000000000000000.txt"),
-        )
-        .unwrap();
+        std::os::unix::fs::symlink(dir.path().join("ptcgl-2.txt"), dir.path().join("ptcgl-1700000000000000000.txt"))
+            .unwrap();
         assert!(resolve_log_path(dir.path(), "ptcgl-1700000000000000000.txt").is_ok());
         let err = read_log(dir.path(), "ptcgl-1700000000000000000.txt").unwrap_err();
         assert!(err.contains("unavailable"), "got: {err}");

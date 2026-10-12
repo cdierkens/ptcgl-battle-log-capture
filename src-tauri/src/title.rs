@@ -16,10 +16,7 @@ pub fn matches_title(title: &str, hint: &str) -> bool {
 /// Lowercase and strip combining diacritic marks (NFD decomposition) so
 /// "Pokémon" and "Pokemon" compare equal.
 fn normalize(s: &str) -> String {
-    s.nfd()
-        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
-        .collect::<String>()
-        .to_lowercase()
+    s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect::<String>().to_lowercase()
 }
 
 #[cfg(test)]

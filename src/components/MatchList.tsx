@@ -1,0 +1,235 @@
+import { MoreHorizontal } from "lucide-react";
+import { type ReactNode, useState } from "react";
+
+import { LoadingButton } from "@/components/LoadingButton";
+import { StatusAlert } from "@/components/StatusAlert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import type { Match, MatchesView } from "../lib/use-matches";
+
+import { matchRow, type MatchRow } from "../lib/match-row";
+import { deleteLog, revealLog } from "../lib/tauri";
+
+const RESULT_VARIANT = { "—": "secondary", L: "destructive", W: "default" } as const;
+
+export function MatchList({ matches, playerName }: { matches: MatchesView; playerName: string }) {
+  const [selected, setSelected] = useState<null | string>(null);
+  const [pendingDelete, setPendingDelete] = useState<Match | null>(null);
+  const [actionError, setActionError] = useState<null | string>(null);
+  const now = Date.now();
+
+  if (matches.matches === null) {
+    return matches.error === null ? (
+      <div className="space-y-2 p-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    ) : (
+      <StatusAlert
+        actions={
+          <LoadingButton loading={matches.refreshing} onClick={matches.refresh} size="sm" variant="outline">
+            Try again
+          </LoadingButton>
+        }
+        className="m-4"
+        tone="critical"
+      >
+        Couldn't load saved Battle Logs: {matches.error}
+      </StatusAlert>
+    );
+  }
+
+  const copy = (match: Match) => {
+    setActionError(null);
+    if (match.raw === null) {
+      setActionError("That Battle Log is still loading.");
+      return;
+    }
+    navigator.clipboard.writeText(match.raw).catch((err: unknown) => setActionError(String(err)));
+  };
+
+  const reveal = (match: Match) => {
+    setActionError(null);
+    revealLog(match.log.fileName).catch((err: unknown) => setActionError(String(err)));
+  };
+
+  const confirmDelete = () => {
+    if (pendingDelete === null) return;
+    const fileName = pendingDelete.log.fileName;
+    setPendingDelete(null);
+    deleteLog(fileName)
+      .then(() => {
+        if (selected === fileName) setSelected(null);
+        matches.refresh();
+      })
+      .catch((err: unknown) => setActionError(String(err)));
+  };
+
+  const actions = (match: Match) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button aria-label="Battle Log actions" size="icon-sm" variant="ghost">
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => copy(match)}>Copy Battle Log</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => reveal(match)}>Show in Finder</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setPendingDelete(match)} variant="destructive">
+          Delete…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const dialog = (
+    <AlertDialog
+      onOpenChange={(open) => {
+        if (!open) setPendingDelete(null);
+      }}
+      open={pendingDelete !== null}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this Battle Log?</AlertDialogTitle>
+          <AlertDialogDescription>The file moves to the Trash, so you can put it back from there.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmDelete} variant="destructive">
+            Move to Trash
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  const detail = matches.matches.find((match) => match.log.fileName === selected);
+  if (detail !== undefined) {
+    return (
+      <>
+        <MatchDetail actions={actions(detail)} match={detail} onBack={() => setSelected(null)} row={matchRow(detail.log, detail.analysis, now)} />
+        {actionError !== null ? <StatusAlert className="m-4" tone="critical">{actionError}</StatusAlert> : null}
+        {dialog}
+      </>
+    );
+  }
+
+  if (matches.matches.length === 0) {
+    return (
+      <Empty className="m-4">
+        <EmptyHeader>
+          <EmptyTitle>No Battle Logs yet</EmptyTitle>
+          <EmptyDescription>
+            After a match, open Battle Log → Export in the game. Your saved matches show up here.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  const nameMissing = playerName.trim() === "";
+  return (
+    <div className="space-y-3 p-4">
+      {nameMissing ? (
+        <StatusAlert tone="info">Add your player name in Settings to see wins and losses.</StatusAlert>
+      ) : null}
+      {actionError !== null ? <StatusAlert tone="critical">{actionError}</StatusAlert> : null}
+      {matches.error !== null ? <StatusAlert tone="critical">{matches.error}</StatusAlert> : null}
+      <ul className="divide-y divide-border rounded-md border border-border">
+        {matches.matches.map((match) => {
+          const row = matchRow(match.log, match.analysis, now);
+          return (
+            <li className="flex items-center gap-1 pr-1" key={row.fileName}>
+              <Button
+                className="h-auto min-w-0 flex-1 justify-start gap-3 rounded-none px-3 py-2 text-left"
+                onClick={() => setSelected(row.fileName)}
+                variant="ghost"
+              >
+                <RowContent row={row} />
+              </Button>
+              {actions(match)}
+            </li>
+          );
+        })}
+      </ul>
+      {dialog}
+    </div>
+  );
+}
+
+function MatchDetail({ actions, match, onBack, row }: { actions: ReactNode; match: Match; onBack: () => void; row: MatchRow }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const summary = match.analysis?.summary;
+  return (
+    <div className="space-y-3 p-4">
+      <div className="flex items-center justify-between">
+        <Button onClick={onBack} size="sm" variant="ghost">
+          ← All matches
+        </Button>
+        {actions}
+      </div>
+      <div className="flex items-center gap-3">
+        <RowContent row={row} />
+      </div>
+      {summary === undefined ? (
+        <p className="text-sm text-muted-foreground">This Battle Log couldn't be summarized.</p>
+      ) : (
+        <dl className="grid grid-cols-2 gap-2 text-sm">
+          <dt className="text-muted-foreground">Prizes taken</dt>
+          <dd className="text-foreground">{row.prizes}</dd>
+          <dt className="text-muted-foreground">Knockouts</dt>
+          <dd className="text-foreground">
+            {summary.knockoutsByPlayer.self}–{summary.knockoutsByPlayer.opponent}
+          </dd>
+          <dt className="text-muted-foreground">Turns</dt>
+          <dd className="text-foreground">{summary.turnCount}</dd>
+        </dl>
+      )}
+      <Button aria-expanded={showRaw} onClick={() => setShowRaw((open) => !open)} size="sm" variant="outline">
+        {showRaw ? "Hide raw log" : "View raw log"}
+      </Button>
+      {showRaw ? (
+        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-md border border-border p-2 font-mono text-xs text-muted-foreground">
+          {match.raw ?? "Loading…"}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function RowContent({ row }: { row: MatchRow }) {
+  return (
+    <>
+      <Badge className="w-7 shrink-0 justify-center" variant={row.result === null ? "outline" : RESULT_VARIANT[row.result]}>
+        {row.result ?? "?"}
+      </Badge>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-foreground">{row.title}</span>
+        <span className="block text-xs text-muted-foreground">
+          {row.prizes === null ? row.when : `Prizes ${row.prizes} · ${row.when}`}
+        </span>
+      </span>
+    </>
+  );
+}
