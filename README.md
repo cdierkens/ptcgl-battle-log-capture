@@ -30,6 +30,10 @@ pnpm tauri build              # a .app bundle in src-tauri/target/release/bundle
 directly in `src-tauri` needs a built UI in `dist/` first (`pnpm build`), because
 `generate_context!` embeds it.
 
+To try log sync without a real site, run `pnpm sync-stub` and paste the config it
+prints into Settings → Sync. Only debug builds accept its `http://localhost` URL.
+`STUB_STATUS=401 pnpm sync-stub` forces a status.
+
 ## Where things live
 
 - **Saved logs:** `~/.ptcgl-battle-logs` by default. Change it in Settings.

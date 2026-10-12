@@ -93,7 +93,14 @@ struct RawAuth {
     token_url: Option<String>,
 }
 
+/// Dev builds also accept `http://localhost` so the local stub works.
+const ALLOW_LOOPBACK_HTTP: bool = cfg!(debug_assertions);
+
 pub fn parse_config(text: &str) -> Result<DestinationConfig, ConfigError> {
+    parse_config_with(text, ALLOW_LOOPBACK_HTTP)
+}
+
+fn parse_config_with(text: &str, allow_loopback_http: bool) -> Result<DestinationConfig, ConfigError> {
     let value: serde_json::Value = serde_json::from_str(text.trim()).map_err(|_| ConfigError::NotAConfig)?;
     match value.get(CONFIG_MARKER).and_then(serde_json::Value::as_u64) {
         None => return Err(ConfigError::NotAConfig),
@@ -110,8 +117,9 @@ pub fn parse_config(text: &str) -> Result<DestinationConfig, ConfigError> {
     if raw.auth.kind != "bearer" {
         return Err(ConfigError::Invalid(format!("auth type \"{}\" isn't supported", raw.auth.kind)));
     }
-    let url = https_url(&raw.url, "url")?;
-    let token_url = raw.auth.token_url.as_deref().map(|u| https_url(u, "auth.tokenUrl")).transpose()?;
+    let url = destination_url(&raw.url, "url", allow_loopback_http)?;
+    let token_url =
+        raw.auth.token_url.as_deref().map(|u| destination_url(u, "auth.tokenUrl", allow_loopback_http)).transpose()?;
     let token = raw.auth.token.as_deref().map(validate_token).transpose()?;
     if token.is_none() && token_url.is_none() {
         return Err(ConfigError::Invalid("auth needs a token or a tokenUrl".into()));
@@ -126,9 +134,11 @@ pub fn parse_config(text: &str) -> Result<DestinationConfig, ConfigError> {
     Ok(DestinationConfig { name, url, headers: raw.headers, token, token_url })
 }
 
-fn https_url(text: &str, field: &str) -> Result<String, ConfigError> {
+fn destination_url(text: &str, field: &str, allow_loopback_http: bool) -> Result<String, ConfigError> {
     let url = Url::parse(text.trim()).map_err(|_| ConfigError::Invalid(format!("{field} isn't a URL")))?;
-    if url.scheme() != "https" || url.host_str().is_none() {
+    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    let scheme_ok = url.scheme() == "https" || (allow_loopback_http && loopback && url.scheme() == "http");
+    if !scheme_ok || url.host_str().is_none() {
         return Err(ConfigError::Invalid(format!("{field} must be an https URL")));
     }
     Ok(url.to_string())
@@ -348,6 +358,15 @@ mod tests {
         assert!(invalid(&POKEDOJO.replace("https://pokedojo", "http://pokedojo")).contains("https"));
         let bad_token_url = ASKS_FOR_TOKEN.replace("https://pokedojo.pro/settings", "http://pokedojo.pro/settings");
         assert!(invalid(&bad_token_url).contains("tokenUrl"));
+    }
+
+    #[test]
+    fn localhost_http_is_allowed_only_in_dev_builds() {
+        let local = POKEDOJO.replace("https://pokedojo.pro", "http://localhost:8787");
+        assert_eq!(parse_config_with(&local, true).unwrap().url, "http://localhost:8787/api/battle-logs");
+        assert!(matches!(parse_config_with(&local, false), Err(ConfigError::Invalid(_))));
+        let remote = POKEDOJO.replace("https://pokedojo.pro", "http://pokedojo.pro");
+        assert!(matches!(parse_config_with(&remote, true), Err(ConfigError::Invalid(_))));
     }
 
     #[test]

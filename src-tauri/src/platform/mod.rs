@@ -1,6 +1,7 @@
 pub mod clipboard;
 pub mod focus;
 pub mod frame;
+pub mod http;
 pub mod keychain;
 pub mod ocr;
 pub mod overlay;

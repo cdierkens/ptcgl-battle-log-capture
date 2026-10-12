@@ -21,6 +21,7 @@ pub mod platform;
 pub mod ports;
 pub mod settings;
 pub mod sink;
+pub mod sync_worker;
 pub mod title;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,7 +37,7 @@ pub fn run() {
     use crate::platform::store::FsLogStore;
     use crate::ports::{OverlayPresenter, ScreenCaptureAccess, SecretStore};
     use crate::settings::{SettingsPaths, SharedSettings};
-    use crate::sink::{LogSink, StoreLogSink};
+    use crate::sink::{LogSink, StoreLogSink, SyncingLogSink};
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -90,12 +91,18 @@ pub fn run() {
             let shared: SharedSettings = Arc::new(RwLock::new(paths.load()));
             app.manage(paths);
             app.manage(shared.clone());
-            let sink: Arc<dyn LogSink> = Arc::new(StoreLogSink::new(FsLogStore::new(shared.clone())));
-            app.manage(sink.clone());
             let secrets: Arc<dyn SecretStore> = Arc::new(KeychainSecretStore::new(&app.config().identifier));
-            app.manage(secrets);
+            app.manage(secrets.clone());
             let queue: SharedQueue = Arc::new(Mutex::new(open_queue(app.handle())?));
-            app.manage(queue);
+            app.manage(queue.clone());
+            let sink: Arc<dyn LogSink> = Arc::new(SyncingLogSink::new(
+                StoreLogSink::new(FsLogStore::new(shared.clone())),
+                shared.clone(),
+                queue.clone(),
+                results_up(state_cell.clone()),
+            ));
+            app.manage(sink.clone());
+            spawn_sync_worker(app.handle(), queue, shared.clone(), secrets, results_up(state_cell.clone()));
             let (events, inbox) = mpsc::channel();
             app.manage(events);
             let handle = app.handle().clone();
@@ -110,6 +117,31 @@ pub fn run() {
                 show_main(_app);
             }
         });
+}
+
+/// Losing the game window counts as leaving results: the overlay, and its Undo, go with it.
+fn results_up(state: std::sync::Arc<std::sync::Mutex<overlay_state::OverlayState>>) -> sink::ResultsUp {
+    Box::new(move || {
+        matches!(*state.lock().unwrap_or_else(|p| p.into_inner()), overlay_state::OverlayState::Results { .. })
+    })
+}
+
+/// Releases deliveries held from before a restart on its first tick: no results screen is up yet.
+fn spawn_sync_worker(
+    app: &tauri::AppHandle,
+    queue: delivery_queue::SharedQueue,
+    settings: settings::SharedSettings,
+    secrets: std::sync::Arc<dyn ports::SecretStore>,
+    results_up: sink::ResultsUp,
+) {
+    let app_version = app.package_info().version.to_string();
+    std::thread::spawn(move || {
+        let transport = match platform::http::HttpTransport::new(&app_version) {
+            Ok(t) => t,
+            Err(e) => return tracing::error!("sync disabled, HTTP client failed to start: {e}"),
+        };
+        sync_worker::Worker { queue, settings, secrets, transport: Box::new(transport), results_up, app_version }.run()
+    });
 }
 
 /// Falls back to an in-memory queue so a broken sync database never stops logs being saved.

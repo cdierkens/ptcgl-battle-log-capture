@@ -94,6 +94,21 @@ impl SecretStore for MemSecretStore {
     }
 }
 
+/// One envelope POST. `headers` are the destination's static headers; the transport adds
+/// `Authorization: Bearer` and `Content-Type: application/json`.
+#[derive(Debug, Clone, Copy)]
+pub struct DeliveryRequest<'a> {
+    pub url: &'a str,
+    pub token: &'a str,
+    pub headers: &'a std::collections::BTreeMap<String, String>,
+    pub body: &'a str,
+}
+
+pub trait DeliveryTransport: Send + Sync {
+    /// The response status, or a network error. Redirects are not followed.
+    fn post(&self, request: &DeliveryRequest<'_>) -> Result<u16, String>;
+}
+
 /// Screen-recording authorization (macOS). On other platforms this is always
 /// authorized, so the concrete implementation reports `true`.
 pub trait ScreenCaptureAccess {
