@@ -26,12 +26,6 @@ pub struct Destination {
     pub enabled: bool,
 }
 
-impl Destination {
-    pub fn host(&self) -> String {
-        host_of(&self.url)
-    }
-}
-
 /// A validated destination config, not yet saved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DestinationConfig {
@@ -119,8 +113,15 @@ pub fn parse_config(text: &str) -> Result<DestinationConfig, ConfigError> {
     let url = https_url(&raw.url, "url")?;
     let token_url = raw.auth.token_url.as_deref().map(|u| https_url(u, "auth.tokenUrl")).transpose()?;
     let token = raw.auth.token.as_deref().map(validate_token).transpose()?;
+    if token.is_none() && token_url.is_none() {
+        return Err(ConfigError::Invalid("auth needs a token or a tokenUrl".into()));
+    }
+    let mut seen = std::collections::BTreeSet::new();
     for (header, value) in &raw.headers {
         validate_header(header, value)?;
+        if !seen.insert(header.to_ascii_lowercase()) {
+            return Err(ConfigError::Invalid(format!("header \"{header}\" is listed twice")));
+        }
     }
     Ok(DestinationConfig { name, url, headers: raw.headers, token, token_url })
 }
@@ -145,22 +146,21 @@ pub fn validate_token(token: &str) -> Result<String, ConfigError> {
     Ok(token.to_string())
 }
 
+/// The app sets these itself: auth, and the envelope's body and target.
+const RESERVED_HEADERS: [&str; 4] = ["authorization", "content-type", "content-length", "host"];
+
 fn validate_header(name: &str, value: &str) -> Result<(), ConfigError> {
     const TCHAR: &[u8] = b"!#$%&'*+-.^_`|~";
     if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || TCHAR.contains(&b)) {
         return Err(ConfigError::Invalid(format!("header \"{name}\" isn't a valid header name")));
     }
-    if name.eq_ignore_ascii_case("authorization") {
-        return Err(ConfigError::Invalid("Authorization is set from auth, not headers".into()));
+    if RESERVED_HEADERS.iter().any(|r| name.eq_ignore_ascii_case(r)) {
+        return Err(ConfigError::Invalid(format!("header \"{name}\" is set by the app")));
     }
-    if value.bytes().any(|b| b.is_ascii_control() && b != b'\t') {
+    if !value.bytes().all(|b| b.is_ascii_graphic() || b == b' ' || b == b'\t') {
         return Err(ConfigError::Invalid(format!("header \"{name}\" has an invalid value")));
     }
     Ok(())
-}
-
-fn host_of(url: &str) -> String {
-    Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default()
 }
 
 /// Whether the confirmation step asks for a token.
@@ -179,31 +179,45 @@ pub enum TokenPrompt {
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
     pub name: String,
-    pub host: String,
+    pub url: String,
     pub token: TokenPrompt,
     pub token_url: Option<String>,
     /// Name of the destination this updates in place, if any.
     pub replaces: Option<String>,
 }
 
-pub fn preview(config: &DestinationConfig, existing: &[Destination]) -> ImportPreview {
+pub fn preview(
+    config: &DestinationConfig,
+    existing: &[Destination],
+    secrets: &dyn SecretStore,
+) -> Result<ImportPreview, DestinationError> {
     let replaces = existing.iter().find(|d| d.url == config.url);
-    let token = match (&config.token, replaces) {
-        (Some(_), _) => TokenPrompt::Embedded,
-        (None, Some(_)) => TokenPrompt::Optional,
-        (None, None) => TokenPrompt::Required,
+    let token = if config.token.is_some() {
+        TokenPrompt::Embedded
+    } else if has_token(replaces, secrets)? {
+        TokenPrompt::Optional
+    } else {
+        TokenPrompt::Required
     };
-    ImportPreview {
+    Ok(ImportPreview {
         name: config.name.clone(),
-        host: host_of(&config.url),
+        url: config.url.clone(),
         token,
         token_url: config.token_url.clone(),
         replaces: replaces.map(|d| d.name.clone()),
+    })
+}
+
+fn has_token(destination: Option<&Destination>, secrets: &dyn SecretStore) -> Result<bool, SecretError> {
+    match destination {
+        Some(d) => Ok(secrets.get(&d.id)?.is_some()),
+        None => Ok(false),
     }
 }
 
 /// Saves the token, then upserts by URL: a known URL keeps its id and enabled state.
-/// A new token un-pauses the destination. Returns the destination's id.
+/// A new token un-pauses the destination. Returns the destination's id. The caller saves
+/// settings after; if that fails a new destination's keychain entry is orphaned, which is harmless.
 pub fn import(
     destinations: &mut Vec<Destination>,
     secrets: &dyn SecretStore,
@@ -214,7 +228,7 @@ pub fn import(
     let pasted = pasted_token.filter(|t| !t.trim().is_empty()).map(validate_token).transpose()?;
     let token = config.token.clone().or(pasted);
     let existing = destinations.iter().position(|d| d.url == config.url);
-    if existing.is_none() && token.is_none() {
+    if token.is_none() && !has_token(existing.map(|i| &destinations[i]), secrets)? {
         return Err(DestinationError::TokenRequired(config.name));
     }
     let id = match existing {
@@ -247,17 +261,17 @@ pub fn set_enabled(destinations: &mut [Destination], id: &str, enabled: bool) ->
     Ok(())
 }
 
-/// Drops the destination, its keychain entry, and its deliveries.
-pub fn remove(
-    destinations: &mut Vec<Destination>,
-    secrets: &dyn SecretStore,
-    queue: &DeliveryQueue,
-    id: &str,
-) -> Result<(), DestinationError> {
+pub fn remove(destinations: &mut Vec<Destination>, id: &str) -> Result<(), DestinationError> {
     let index = destinations.iter().position(|d| d.id == id).ok_or(DestinationError::NotFound)?;
+    destinations.remove(index);
+    Ok(())
+}
+
+/// Deletes a removed destination's keychain entry and deliveries. Runs after settings are saved,
+/// so a failure leaves only orphans, never a listed destination without its token.
+pub fn forget(secrets: &dyn SecretStore, queue: &DeliveryQueue, id: &str) -> Result<(), DestinationError> {
     secrets.delete(id)?;
     queue.remove_destination(id)?;
-    destinations.remove(index);
     Ok(())
 }
 
@@ -344,13 +358,37 @@ mod tests {
     #[test]
     fn authorization_is_reserved_for_auth() {
         let config = ASKS_FOR_TOKEN.replace("X-Client", "authorization");
-        assert!(invalid(&config).contains("Authorization"));
+        assert!(invalid(&config).contains("set by the app"));
     }
 
     #[test]
     fn rejects_headers_that_could_inject() {
         assert!(invalid(&ASKS_FOR_TOKEN.replace("\"tracker\"", "\"a\\r\\nX-Evil: 1\"")).contains("value"));
         assert!(invalid(&ASKS_FOR_TOKEN.replace("X-Client", "X Client")).contains("name"));
+    }
+
+    #[test]
+    fn the_app_owns_body_and_target_headers() {
+        for reserved in ["Content-Type", "content-length", "HOST"] {
+            assert!(invalid(&ASKS_FOR_TOKEN.replace("X-Client", reserved)).contains("set by the app"));
+        }
+    }
+
+    #[test]
+    fn rejects_headers_listed_twice_in_different_case() {
+        let twice = ASKS_FOR_TOKEN.replace(r#""X-Client": "tracker""#, r#""X-Client": "a", "x-client": "b""#);
+        assert!(invalid(&twice).contains("twice"));
+    }
+
+    #[test]
+    fn rejects_non_ascii_header_values() {
+        assert!(invalid(&ASKS_FOR_TOKEN.replace("\"tracker\"", "\"tráckér\"")).contains("value"));
+    }
+
+    #[test]
+    fn a_config_without_a_token_must_say_where_to_get_one() {
+        let neither = POKEDOJO.replace(r#", "token": "pdj_abc""#, "");
+        assert!(invalid(&neither).contains("tokenUrl"));
     }
 
     #[test]
@@ -382,7 +420,7 @@ mod tests {
     fn a_config_without_a_token_needs_one_pasted() {
         let (mut dests, secrets, queue) = setup();
         let config = parse_config(ASKS_FOR_TOKEN).unwrap();
-        assert_eq!(preview(&config, &dests).token, TokenPrompt::Required);
+        assert_eq!(preview(&config, &dests, &secrets).unwrap().token, TokenPrompt::Required);
         assert!(matches!(
             import(&mut dests, &secrets, &queue, config.clone(), Some("  ")),
             Err(DestinationError::TokenRequired(_))
@@ -402,7 +440,7 @@ mod tests {
 
         let renamed =
             parse_config(&POKEDOJO.replace("\"PokeDojo\"", "\"Dojo\"").replace("pdj_abc", "pdj_new")).unwrap();
-        let preview = preview(&renamed, &dests);
+        let preview = preview(&renamed, &dests, &secrets).unwrap();
         assert_eq!(preview.replaces.as_deref(), Some("PokeDojo"));
         assert_eq!(preview.token, TokenPrompt::Embedded);
         assert_eq!(import(&mut dests, &secrets, &queue, renamed, None).unwrap(), id);
@@ -421,10 +459,20 @@ mod tests {
         let config = parse_config(ASKS_FOR_TOKEN).unwrap();
         let id = import(&mut dests, &secrets, &queue, config.clone(), Some("first")).unwrap();
         queue.flag_attention(&id, "401").unwrap();
-        assert_eq!(preview(&config, &dests).token, TokenPrompt::Optional);
+        assert_eq!(preview(&config, &dests, &secrets).unwrap().token, TokenPrompt::Optional);
         import(&mut dests, &secrets, &queue, config, None).unwrap();
         assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("first"));
         assert_eq!(queue.needing_attention().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn repasting_requires_a_token_when_the_keychain_lost_it() {
+        let (mut dests, secrets, queue) = setup();
+        let config = parse_config(ASKS_FOR_TOKEN).unwrap();
+        let id = import(&mut dests, &secrets, &queue, config.clone(), Some("first")).unwrap();
+        secrets.delete(&id).unwrap();
+        assert_eq!(preview(&config, &dests, &secrets).unwrap().token, TokenPrompt::Required);
+        assert!(matches!(import(&mut dests, &secrets, &queue, config, None), Err(DestinationError::TokenRequired(_))));
     }
 
     #[test]
@@ -435,7 +483,7 @@ mod tests {
         let b = import(&mut dests, &secrets, &queue, parse_config(&other).unwrap(), None).unwrap();
         assert_ne!(a, b);
         assert_eq!(dests.len(), 2);
-        assert_eq!(dests[1].host(), "example.com");
+        assert_eq!(dests[1].url, "https://example.com/api/battle-logs");
     }
 
     #[test]
@@ -443,11 +491,12 @@ mod tests {
         let (mut dests, secrets, queue) = setup();
         let id = import(&mut dests, &secrets, &queue, parse_config(POKEDOJO).unwrap(), None).unwrap();
         queue.enqueue("a.txt", &id, Release::Now).unwrap();
-        remove(&mut dests, &secrets, &queue, &id).unwrap();
+        remove(&mut dests, &id).unwrap();
         assert!(dests.is_empty());
+        forget(&secrets, &queue, &id).unwrap();
         assert_eq!(secrets.get(&id).unwrap(), None);
         assert!(queue.all().unwrap().is_empty());
-        assert!(matches!(remove(&mut dests, &secrets, &queue, &id), Err(DestinationError::NotFound)));
+        assert!(matches!(remove(&mut dests, &id), Err(DestinationError::NotFound)));
     }
 
     #[test]

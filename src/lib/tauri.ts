@@ -18,12 +18,12 @@ export interface Destination {
 
 /** The confirmation step for a pasted destination config. */
 export interface ImportPreview {
-  host: string;
   name: string;
   /** Name of the destination this updates in place. */
   replaces: null | string;
   token: TokenPrompt;
   tokenUrl: null | string;
+  url: string;
 }
 
 export interface LogSummary {
@@ -83,5 +83,5 @@ export const importDestination = (config: string, token: null | string) =>
 export const setDestinationEnabled = (id: string, enabled: boolean) =>
   invoke<void>("set_destination_enabled", { enabled, id });
 export const removeDestination = (id: string) => invoke<void>("remove_destination", { id });
-export const openTokenPage = (url: string) => invoke<void>("open_token_page", { url });
+export const openTokenPage = (config: string) => invoke<void>("open_token_page", { config });
 export const CAPTURE_STATUS_EVENT = "capture-status";

@@ -31,10 +31,18 @@ pub fn get_settings(settings: State<'_, SharedSettings>) -> Settings {
     settings::current(&settings)
 }
 
+/// Held across every settings read-modify-write so concurrent commands can't drop each other's changes.
+static SETTINGS_WRITE: Mutex<()> = Mutex::new(());
+
+fn settings_write() -> std::sync::MutexGuard<'static, ()> {
+    SETTINGS_WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Destinations are left as they are; only the destination commands change them.
 /// Returns what was saved.
 #[tauri::command]
 pub fn save_settings(s: Settings, app: AppHandle) -> Result<Settings, String> {
+    let _write = settings_write();
     let destinations = settings::current(&app.state::<SharedSettings>()).destinations;
     let next = Settings { destinations, ..s };
     apply_settings(&app, next.clone())?;
@@ -56,6 +64,7 @@ fn change_destinations<T>(
     app: &AppHandle,
     change: impl FnOnce(&mut Vec<Destination>, &dyn SecretStore, &DeliveryQueue) -> Result<T, DestinationError>,
 ) -> Result<T, String> {
+    let _write = settings_write();
     let mut next = settings::current(&app.state::<SharedSettings>());
     let secrets = app.state::<Arc<dyn SecretStore>>();
     let shared_queue = app.state::<SharedQueue>();
@@ -69,9 +78,14 @@ fn change_destinations<T>(
 
 /// Validates a pasted destination config for the confirmation step. Saves nothing.
 #[tauri::command]
-pub fn preview_destination(config: String, settings: State<'_, SharedSettings>) -> Result<ImportPreview, String> {
+pub fn preview_destination(
+    config: String,
+    settings: State<'_, SharedSettings>,
+    secrets: State<'_, Arc<dyn SecretStore>>,
+) -> Result<ImportPreview, String> {
     let parsed = destinations::parse_config(&config).map_err(|e| e.to_string())?;
-    Ok(destinations::preview(&parsed, &settings::current(&settings).destinations))
+    destinations::preview(&parsed, &settings::current(&settings).destinations, secrets.inner().as_ref())
+        .map_err(|e| e.to_string())
 }
 
 /// Saves a confirmed config; a URL already configured is updated in place.
@@ -89,18 +103,22 @@ pub fn set_destination_enabled(id: String, enabled: bool, app: AppHandle) -> Res
 }
 
 #[tauri::command]
-pub fn remove_destination(id: String, app: AppHandle) -> Result<(), String> {
-    change_destinations(&app, |list, secrets, queue| destinations::remove(list, secrets, queue, &id))
+pub fn remove_destination(
+    id: String,
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    secrets: State<'_, Arc<dyn SecretStore>>,
+) -> Result<(), String> {
+    change_destinations(&app, |list, _, _| destinations::remove(list, &id))?;
+    destinations::forget(secrets.inner().as_ref(), &delivery_queue::lock(&queue), &id).map_err(|e| e.to_string())
 }
 
-/// Opens a destination's token page. Only https, so the webview can't launch other schemes.
+/// Opens the token page named by a pasted config; the webview can't pick an arbitrary URL.
 #[tauri::command]
-pub fn open_token_page(url: String, app: AppHandle) -> Result<(), String> {
-    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
-    if parsed.scheme() != "https" {
-        return Err("Only https links can be opened.".into());
-    }
-    app.opener().open_url(parsed.as_str(), None::<&str>).map_err(|e| e.to_string())
+pub fn open_token_page(config: String, app: AppHandle) -> Result<(), String> {
+    let parsed = destinations::parse_config(&config).map_err(|e| e.to_string())?;
+    let url = parsed.token_url.ok_or("This config has no token page.")?;
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 fn output_dir(settings: &SharedSettings) -> PathBuf {

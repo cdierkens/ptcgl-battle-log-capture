@@ -5,7 +5,7 @@ import type { ImportPreview } from "./tauri";
 import { canConfirm, hostOf, tokenToSend } from "./destinations";
 
 function preview(token: ImportPreview["token"]): ImportPreview {
-  return { host: "pokedojo.pro", name: "PokeDojo", replaces: null, token, tokenUrl: null };
+  return { name: "PokeDojo", replaces: null, token, tokenUrl: null, url: "https://pokedojo.pro/api/battle-logs" };
 }
 
 describe("hostOf", () => {

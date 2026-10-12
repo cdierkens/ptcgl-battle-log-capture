@@ -31,10 +31,9 @@ import {
   setDestinationEnabled,
 } from "../lib/tauri";
 
-type Step =
-  | { config: string; preview: ImportPreview; token: string; type: "confirming" }
-  | { config: string; type: "pasting" }
-  | { type: "idle" };
+type Confirming = { config: string; preview: ImportPreview; token: string; type: "confirming" };
+
+type Step = Confirming | { config: string; type: "pasting" } | { type: "idle" };
 
 /** Sync destinations: paste a site's config, confirm it, then enable, disable, or remove. */
 export function DestinationsSetting({ settings }: { settings: SettingsView }) {
@@ -63,15 +62,15 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
       setStep({ config, preview, token: "", type: "confirming" });
     });
 
-  const save = (config: string, preview: ImportPreview, token: string) =>
+  const save = ({ config, preview, token }: Confirming) =>
     run(async () => {
       await importDestination(config, tokenToSend(preview, token));
       setStep({ type: "idle" });
     });
 
-  const openPage = (url: string) => {
+  const openPage = (config: string) => {
     setError(null);
-    openTokenPage(url).catch((err: unknown) => setError(String(err)));
+    openTokenPage(config).catch((err: unknown) => setError(String(err)));
   };
 
   return (
@@ -130,7 +129,7 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
         <div className="space-y-3 rounded-md border p-3">
           <p className="text-sm">
             Sync saved Battle Logs to <strong>{step.preview.name}</strong> at{" "}
-            <span className="font-mono">{step.preview.host}</span>?
+            <span className="font-mono">{hostOf(step.preview.url)}</span>?
           </p>
           {step.preview.replaces === null ? null : (
             <p className="text-xs text-muted-foreground">This updates {step.preview.replaces}.</p>
@@ -150,8 +149,8 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
               <FieldDescription>
                 {step.preview.token === "optional" ? "Leave blank to keep the current token. " : null}
                 {step.preview.tokenUrl === null ? null : (
-                  <Button className="h-auto p-0" onClick={() => openPage(step.preview.tokenUrl ?? "")} size="sm" variant="link">
-                    Get a token from {step.preview.host}
+                  <Button className="h-auto p-0" onClick={() => openPage(step.config)} size="sm" variant="link">
+                    Get a token from {hostOf(step.preview.tokenUrl)}
                   </Button>
                 )}
               </FieldDescription>
@@ -161,7 +160,7 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
             <LoadingButton
               disabled={!canConfirm(step.preview, step.token)}
               loading={busy}
-              onClick={() => save(step.config, step.preview, step.token)}
+              onClick={() => save(step)}
               size="sm"
             >
               {step.preview.replaces === null ? "Add" : "Update"}
