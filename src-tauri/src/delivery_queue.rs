@@ -469,7 +469,7 @@ mod tests {
         q.mark_retry("a.txt", "pokedojo", "503", 0).unwrap();
         q.flag_attention("pokedojo", "401").unwrap();
         q.clear_attention("pokedojo").unwrap();
-        let due = q.due(48 * HOUR).unwrap();
+        let due = q.due(1).unwrap();
         assert_eq!(due.len(), 1, "due at once after the token fix");
         q.mark_retry("a.txt", "pokedojo", "503", 48 * HOUR).unwrap();
         assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Pending));
