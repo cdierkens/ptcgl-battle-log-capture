@@ -2,7 +2,7 @@ import type { GameSummary } from "@dierkens.dev/ptcgl-battle-log-parser";
 
 import { describe, expect, it } from "vitest";
 
-import { analyzeLog, fileNameOf, matchRow, relativeTime } from "./match-row";
+import { analyzeLog, createAnalysisCache, fileNameOf, matchRow, relativeTime } from "./match-row";
 
 const NOW = Date.UTC(2026, 9, 7, 12, 0, 0);
 const LOG = { createdMs: NOW - 12 * 60_000, fileName: "ptcgl-1.txt", sizeBytes: 100 };
@@ -69,5 +69,22 @@ describe("analyzeLog", () => {
 
   it("returns null for text that isn't a battle log", () => {
     expect(analyzeLog("hello world", "Ash")).toBeNull();
+  });
+});
+
+describe("createAnalysisCache", () => {
+  const raw = "Setup\nAlice drew 7 cards for the opening hand.\n\nAlice's Turn\nAlice ended their turn.";
+
+  it("parses each file once per player name", () => {
+    const analyze = createAnalysisCache();
+    const first = analyze("ptcgl-1.txt", raw, "Alice");
+    expect(first?.summary.turnCount).toBe(1);
+    expect(analyze("ptcgl-1.txt", raw, "Alice")).toBe(first);
+  });
+
+  it("re-parses when the player name changes", () => {
+    const analyze = createAnalysisCache();
+    expect(analyze("ptcgl-1.txt", raw, "Alice")).not.toBeNull();
+    expect(analyze("ptcgl-1.txt", raw, "")).toBeNull();
   });
 });

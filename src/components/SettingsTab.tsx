@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { LoadingButton } from "@/components/LoadingButton";
 import { StatusAlert } from "@/components/StatusAlert";
@@ -14,14 +14,17 @@ import { ClipboardSetting } from "./ClipboardSetting";
 
 export function SettingsTab({ settings }: { settings: SettingsView }) {
   const current = settings.settings;
-  const [name, setName] = useState("");
+  const [name, setName] = useState(current?.player_name ?? "");
+  const [syncedFrom, setSyncedFrom] = useState(current);
   const [nameSaved, setNameSaved] = useState(false);
   const [picking, setPicking] = useState(false);
   const [actionError, setActionError] = useState<null | string>(null);
 
-  useEffect(() => {
+  // Saved settings win over the draft name whenever they change.
+  if (current !== syncedFrom) {
+    setSyncedFrom(current);
     if (current !== null) setName(current.player_name);
-  }, [current]);
+  }
 
   if (current === null) {
     return settings.error === null ? (

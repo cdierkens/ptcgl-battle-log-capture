@@ -27,6 +27,20 @@ export function analyzeLog(raw: string, playerName: string): MatchAnalysis | nul
   return isOk(result) ? { opponentName: result.value.opponentName, summary: result.value.summary } : null;
 }
 
+/**
+ * `analyzeLog` memoized per player name + file. Parsing costs ~25 ms per log, so
+ * rows must not re-parse on every render. Saved logs are immutable, so the file
+ * name identifies the content.
+ */
+export function createAnalysisCache(): (fileName: string, raw: string, playerName: string) => MatchAnalysis | null {
+  const cache = new Map<string, MatchAnalysis | null>();
+  return (fileName, raw, playerName) => {
+    const key = `${playerName}\u0000${fileName}`;
+    if (!cache.has(key)) cache.set(key, analyzeLog(raw, playerName));
+    return cache.get(key) ?? null;
+  };
+}
+
 export function fileNameOf(path: string): string {
   return path.split(/[/\\]/).at(-1) ?? path;
 }

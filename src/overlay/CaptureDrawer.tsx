@@ -27,6 +27,17 @@ export function CaptureDrawer() {
   const [shown, setShown] = useState(false);
   const [resizeError, setResizeError] = useState<null | string>(null);
   const previousState = useRef<null | string>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  // Mount before the slide-in. Closing starts the slide-out and forgets the paste focus request.
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setMounted(true);
+    } else {
+      setShown(false);
+      setFocusPaste(false);
+    }
+  }
 
   useEffect(() => {
     if (state === null) return;
@@ -36,13 +47,8 @@ export function CaptureDrawer() {
   }, [prompts, state]);
 
   useEffect(() => {
-    if (!open) setFocusPaste(false);
-  }, [open]);
-
-  useEffect(() => {
     if (open) {
       let cancelled = false;
-      setMounted(true);
       setDrawerOpen(true)
         .then(() => {
           setResizeError(null);
@@ -53,7 +59,6 @@ export function CaptureDrawer() {
         cancelled = true;
       };
     }
-    setShown(false);
     const timer = window.setTimeout(() => {
       setMounted(false);
       setDrawerOpen(false)

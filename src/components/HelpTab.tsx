@@ -8,10 +8,12 @@ import { historyText } from "../lib/capture-status";
 import { relativeTime } from "../lib/match-row";
 import { lastResultsAt } from "../lib/status-history";
 import { type CaptureStatusEvent, getDiagnostics, openScreenRecordingSettings, relaunchApp } from "../lib/tauri";
+import { useNow } from "../lib/use-now";
 
 export function HelpTab({ history, state }: { history: CaptureStatusEvent[]; state: null | string }) {
   const [diagnostics, setDiagnostics] = useState<null | string>(null);
   const [error, setError] = useState<null | string>(null);
+  const now = useNow();
 
   useEffect(() => {
     getDiagnostics()
@@ -56,7 +58,7 @@ export function HelpTab({ history, state }: { history: CaptureStatusEvent[]; sta
         <p className="text-sm text-muted-foreground">
           {lastResults === null
             ? "No results screen seen since the app opened."
-            : `Last results screen ${relativeTime(lastResults, Date.now())}.`}
+            : `Last results screen ${relativeTime(lastResults, now)}.`}
         </p>
       </section>
 
