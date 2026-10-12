@@ -1,5 +1,7 @@
 import type { SubmitOutcome } from "./tauri";
 
+import { isResultsState } from "./capture-status";
+
 export type PasteAction =
   | { message: string; type: "failed" }
   | { text: string; type: "edit" }
@@ -13,15 +15,15 @@ export interface PasteModel {
 }
 
 export const ALREADY_SAVED_MESSAGE = "That Battle Log was already saved. Export this match's Battle Log and paste it.";
+export const ALREADY_SAVED_ANYTIME_MESSAGE = "That Battle Log is already saved.";
 
 export const initialPaste: PasteModel = { error: null, submitting: false, text: "" };
 
-/** A re-paste only counts as success once this match's log is saved. */
+/** On the results screen a re-paste only counts once this match's log is saved; elsewhere it's just a duplicate. */
 export function actionForOutcome(outcome: SubmitOutcome, overlayState: null | string): PasteAction {
-  if (outcome.kind === "alreadySaved" && overlayState !== "Saved") {
-    return { message: ALREADY_SAVED_MESSAGE, type: "failed" };
-  }
-  return { type: "saved" };
+  if (outcome.kind !== "alreadySaved" || overlayState === "Saved") return { type: "saved" };
+  const message = isResultsState(overlayState) ? ALREADY_SAVED_MESSAGE : ALREADY_SAVED_ANYTIME_MESSAGE;
+  return { message, type: "failed" };
 }
 
 export function isBlank(text: string): boolean {

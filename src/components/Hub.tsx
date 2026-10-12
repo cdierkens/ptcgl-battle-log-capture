@@ -15,6 +15,7 @@ import { useSyncStatus } from "../lib/use-sync-status";
 import { HelpTab } from "./HelpTab";
 import { MatchCard } from "./MatchCard";
 import { MatchList } from "./MatchList";
+import { PasteForm } from "./PasteForm";
 import { SettingsTab } from "./SettingsTab";
 
 interface HubProps {
@@ -76,6 +77,11 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
           </TabsTrigger>
         </TabsList>
         <TabsContent className="min-h-0 overflow-y-auto" value="matches">
+          {isResultsState(overlay.state) ? null : (
+            <section aria-label="Save a Battle Log" className="border-b border-border p-4">
+              <PasteForm clipboardOn={false} focusPaste={false} onSaved={matches.refresh} state={overlay.state} />
+            </section>
+          )}
           <MatchList destinations={destinations} matches={matches} playerName={playerName} sync={sync.status} />
         </TabsContent>
         <TabsContent className="min-h-0 overflow-y-auto" value="settings">
