@@ -21,10 +21,16 @@ export function ContinueShield() {
       {error !== null ? (
         <StatusAlert tone="critical">{error}</StatusAlert>
       ) : (
-        <p className="text-xs font-semibold text-foreground">Save your Battle Log first</p>
+        <p className="min-w-0 truncate text-xs font-semibold text-foreground">Save your Battle Log first</p>
       )}
-      <LoadingButton loading={skipping} onClick={skip} size="sm" variant="ghost">
-        Continue without saving
+      <LoadingButton
+        loading={skipping}
+        onClick={skip}
+        size="xs"
+        title="Continue without saving"
+        variant="ghost"
+      >
+        Skip
       </LoadingButton>
     </div>
   );
