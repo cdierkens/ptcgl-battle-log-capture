@@ -25,15 +25,12 @@ export function useMatches(playerName: string): MatchesView {
   const [error, setError] = useState<null | string>(null);
   const [refreshing, setRefreshing] = useState(true);
   const requested = useRef(new Set<string>());
-  // Calling the factory once; `analyze` is a memo, so render stays pure.
+  // One cache per hook instance; repeat calls return the same analysis.
   const [analyze] = useState(createAnalysisCache);
 
   const load = useCallback(() => {
     listLogs()
-      .then((next) => {
-        setLogs(next);
-        setError(null);
-      })
+      .then(setLogs)
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setRefreshing(false));
   }, []);

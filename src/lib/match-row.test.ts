@@ -75,7 +75,7 @@ describe("analyzeLog", () => {
 describe("createAnalysisCache", () => {
   const raw = "Setup\nAlice drew 7 cards for the opening hand.\n\nAlice's Turn\nAlice ended their turn.";
 
-  it("parses each file once per player name", () => {
+  it("parses each saved log once per player name", () => {
     const analyze = createAnalysisCache();
     const first = analyze("ptcgl-1.txt", raw, "Alice");
     expect(first?.summary.turnCount).toBe(1);

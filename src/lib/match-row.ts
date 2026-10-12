@@ -28,9 +28,9 @@ export function analyzeLog(raw: string, playerName: string): MatchAnalysis | nul
 }
 
 /**
- * `analyzeLog` memoized per player name + file. Parsing costs ~25 ms per log, so
- * rows must not re-parse on every render. Saved logs are immutable, so the file
- * name identifies the content.
+ * `analyzeLog` memoized per player name + saved log. Parsing costs ~25 ms per log, so
+ * the match list must not re-parse on every render. Saved logs are immutable, so the
+ * file name identifies the content.
  */
 export function createAnalysisCache(): (fileName: string, raw: string, playerName: string) => MatchAnalysis | null {
   const cache = new Map<string, MatchAnalysis | null>();
