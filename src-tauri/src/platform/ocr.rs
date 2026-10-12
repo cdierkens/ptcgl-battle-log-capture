@@ -21,6 +21,7 @@ use crate::ports::{Frame, TextMatch, TextRecognizer};
 
 /// Text recognizer backed by macOS Vision. On non-macOS platforms this
 /// reports no matches.
+#[derive(Clone, Copy)]
 pub struct VisionTextRecognizer;
 
 #[cfg(target_os = "macos")]
@@ -31,6 +32,12 @@ impl TextRecognizer for VisionTextRecognizer {
 
     fn find_text_containing(&self, frame: &Frame, needles: &[String]) -> Vec<TextMatch> {
         self.scan(frame, needles, MatchKind::Substring)
+    }
+
+    /// Vision's first request in a new binary takes about a minute; a blank frame pays all of it.
+    fn warm_up(&self) {
+        let blank = Frame { width: 64, height: 64, rgba: vec![255; 64 * 64 * 4] };
+        self.scan(&blank, &[], MatchKind::Exact);
     }
 }
 
