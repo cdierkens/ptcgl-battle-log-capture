@@ -17,6 +17,7 @@
     "verify": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build"
   },
   "dependencies": {
+    "@dierkens.dev/ptcgl-battle-log-parser": "1.1.0",
     "@tauri-apps/api": "2.11.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"

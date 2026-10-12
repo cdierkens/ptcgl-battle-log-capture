@@ -1,7 +1,4 @@
-import type { GameSummary } from "@pokedojo/types";
-
-import { analyzeBattleLog } from "@pokedojo/logic";
-import { Effect, Either } from "effect";
+import { analyzeBattleLog, type GameSummary, isOk } from "@dierkens.dev/ptcgl-battle-log-parser";
 
 import type { LogSummary } from "./tauri";
 
@@ -26,8 +23,8 @@ const DAY = 24 * HOUR;
 /** Parses a saved log for its row; `null` when it can't be analyzed or the player name is unset. */
 export function analyzeLog(raw: string, playerName: string): MatchAnalysis | null {
   if (playerName.trim() === "") return null;
-  const result = Effect.runSync(Effect.either(analyzeBattleLog(raw, { playerName: playerName.trim() })));
-  return Either.isRight(result) ? { opponentName: result.right.opponentName, summary: result.right.summary } : null;
+  const result = analyzeBattleLog(raw, { playerName: playerName.trim() });
+  return isOk(result) ? { opponentName: result.value.opponentName, summary: result.value.summary } : null;
 }
 
 export function fileNameOf(path: string): string {

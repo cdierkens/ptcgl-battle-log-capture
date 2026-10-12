@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@dierkens.dev/ptcgl-battle-log-parser':
+        specifier: 1.1.0
+        version: 1.1.0
       '@tauri-apps/api':
         specifier: 2.11.1
         version: 2.11.1
@@ -151,6 +154,10 @@ packages:
 
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
+
+  '@dierkens.dev/ptcgl-battle-log-parser@1.1.0':
+    resolution: {integrity: sha512-6vmKndI5zAfBjGfAsGjkmIQcyXqVFBgwX7zqIq4JqMGePx6L//pvGIVMzBU26ttIIf7URE3LHXYv67Wl0EJiQA==}
+    engines: {node: '>=22.12.0'}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -1436,6 +1443,8 @@ snapshots:
     dependencies:
       hashery: 1.5.1
       keyv: 5.6.0
+
+  '@dierkens.dev/ptcgl-battle-log-parser@1.1.0': {}
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true

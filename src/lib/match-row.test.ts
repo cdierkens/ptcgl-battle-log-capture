@@ -1,8 +1,8 @@
-import type { GameSummary } from "@pokedojo/types";
+import type { GameSummary } from "@dierkens.dev/ptcgl-battle-log-parser";
 
 import { describe, expect, it } from "vitest";
 
-import { fileNameOf, matchRow, relativeTime } from "./match-row";
+import { analyzeLog, fileNameOf, matchRow, relativeTime } from "./match-row";
 
 const NOW = Date.UTC(2026, 9, 7, 12, 0, 0);
 const LOG = { createdMs: NOW - 12 * 60_000, fileName: "ptcgl-1.txt", sizeBytes: 100 };
@@ -54,5 +54,20 @@ describe("fileNameOf", () => {
   it("takes the last path segment", () => {
     expect(fileNameOf("/Users/me/.ptcgl-battle-logs/ptcgl-1.txt")).toBe("ptcgl-1.txt");
     expect(fileNameOf("C:\\logs\\ptcgl-1.txt")).toBe("ptcgl-1.txt");
+  });
+});
+
+describe("analyzeLog", () => {
+  it("analyzes a battle log from the player's side", () => {
+    const raw = "Setup\nAlice drew 7 cards for the opening hand.\n\nAlice's Turn\nAlice ended their turn.";
+    expect(analyzeLog(raw, " Alice ")?.summary.turnCount).toBe(1);
+  });
+
+  it("returns null without a player name", () => {
+    expect(analyzeLog("Setup\n- x", "  ")).toBeNull();
+  });
+
+  it("returns null for text that isn't a battle log", () => {
+    expect(analyzeLog("hello world", "Ash")).toBeNull();
   });
 });
