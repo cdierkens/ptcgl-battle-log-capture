@@ -4,14 +4,20 @@ Desktop companion ("PTCGL Tracker") that watches Pokémon TCG Live, spots the
 match results screen, and saves the battle log. Tauri 2 (Rust) + React. Public,
 MIT. Sibling of `@dierkens.dev/ptcgl-battle-log-parser`.
 
-## Status: extraction approved
+## Status: standalone
 
-The code is a `git subtree split` of `pokedojo.pro/apps/battle-log-capture`
-and still builds only inside that monorepo (`workspace:*` / `catalog:` deps,
-`@pokedojo/*` imports). Do not try to make it build piecemeal. Follow the
-approved plan in `docs/specs/2026-10-11-capture-app-extraction.md` step by step.
+Extracted from `pokedojo.pro/apps/battle-log-capture` per
+`docs/specs/2026-10-11-capture-app-extraction.md`. Builds on its own; macOS
+only for now (Windows compiles in CI with stubbed capture/OCR).
 
-## Conventions (target state)
+## Commands
+
+- `pnpm install`, `pnpm tauri dev`
+- `pnpm run verify`: typecheck, lint, test, build. Run it before committing.
+- In `src-tauri/`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. Cargo needs `dist/` from `pnpm build`.
+- Dependencies are pinned exactly. pnpm 11 rejects releases younger than a day.
+
+## Conventions
 
 - Plain TypeScript + React. **No Effect**, no `@pokedojo/*`, no PokeDojo rules.
 - Parsing: npm `@dierkens.dev/ptcgl-battle-log-parser` (`Result` union, no throw).
