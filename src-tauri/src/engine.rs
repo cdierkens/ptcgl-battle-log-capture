@@ -75,9 +75,6 @@ pub struct EngineCtx {
     game_focused: bool,
     /// Text recognition has warmed up; until then polls skip OCR.
     recognizer_ready: bool,
-    /// Keep the clipboard baseline taken during warm-up until the first results screen,
-    /// so a log copied while results detection was off still counts.
-    warm_up_baseline: bool,
     overlay_error: Option<String>,
     rendered_drawer: Option<WindowInfo>,
     rendered_shield: Option<(WindowInfo, ScreenRect)>,
@@ -99,7 +96,6 @@ impl EngineCtx {
             last_autosave: None,
             game_focused: false,
             recognizer_ready: false,
-            warm_up_baseline: false,
             overlay_error: None,
             rendered_drawer: None,
             rendered_shield: None,
@@ -144,29 +140,21 @@ impl EngineCtx {
         if shield != Some(ShieldStatus::Saved) {
             self.last_autosave = None;
         }
-        if self.state == OverlayState::WarmingUp {
-            self.warm_up_baseline = true;
-        } else if shield.is_some() || self.state != OverlayState::InMatch {
-            self.warm_up_baseline = false;
-        }
-        let watching = shield.is_some() || self.warm_up_baseline;
+        // Also watch during warm-up: a log copied then is read only if results are detected in
+        // the poll that warm-up ends; any other state disarms, dropping the warm-up baseline.
+        let watching = shield.is_some() || self.state == OverlayState::WarmingUp;
         if !self.autosave || self.autosave_error.is_some() || !watching {
             self.clipboard.disarm();
             return None;
         }
         let count = clipboard.change_count();
-        if shield.is_none() {
-            if !self.clipboard.is_armed() || !self.game_focused {
-                self.clipboard.arm(count);
-            }
-            return None;
-        }
-        // Baseline on entering results; re-baseline while unfocused so other apps' copies are never read.
+        // Baseline on first watch; re-baseline while unfocused so other apps' copies are never read.
         if !self.clipboard.is_armed() || !self.game_focused {
             self.clipboard.arm(count);
             return None;
         }
-        if !self.clipboard.changed(count) || shield == Some(ShieldStatus::Saved) {
+        let shield = shield?;
+        if !self.clipboard.changed(count) || shield == ShieldStatus::Saved {
             return None;
         }
         if clipboard.access() == ClipboardAccess::Denied {
@@ -663,6 +651,23 @@ mod tests {
         poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
         assert_eq!(ctx.autosave(&clip, &sink), Some("/logs/1.txt".to_string()));
         assert_eq!(shield(&ctx), Some(ShieldStatus::Saved));
+    }
+
+    #[test]
+    fn a_warm_up_copy_is_dropped_once_the_match_moves_on() {
+        let (clip, sink, presenter) = (FakeClipboard::holding_a_log(), sink(), RecordingPresenter::default());
+        let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
+        ctx.set_autosave(true);
+        poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &presenter);
+        ctx.autosave(&clip, &sink);
+        clip.copy(COPIED_LOG);
+        ctx.set_recognizer_ready(true);
+        poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &presenter);
+        assert_eq!(ctx.autosave(&clip, &sink), None);
+        poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
+        assert_eq!(ctx.autosave(&clip, &sink), None, "the earlier match's copy is the baseline");
+        assert_eq!(clip.reads.get(), 0);
+        assert_eq!(shield(&ctx), Some(ShieldStatus::Up));
     }
 
     #[test]
