@@ -10,6 +10,7 @@ use crate::gate::looks_like_battle_log;
 use crate::logs;
 use crate::ports::LogStore;
 use crate::settings::{self, SharedSettings};
+use crate::sync_status::SyncChanged;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -83,11 +84,18 @@ pub struct SyncingLogSink<S: LogSink> {
     settings: SharedSettings,
     queue: SharedQueue,
     results_up: ResultsUp,
+    on_change: SyncChanged,
 }
 
 impl<S: LogSink> SyncingLogSink<S> {
-    pub fn new(inner: S, settings: SharedSettings, queue: SharedQueue, results_up: ResultsUp) -> Self {
-        Self { inner, settings, queue, results_up }
+    pub fn new(
+        inner: S,
+        settings: SharedSettings,
+        queue: SharedQueue,
+        results_up: ResultsUp,
+        on_change: SyncChanged,
+    ) -> Self {
+        Self { inner, settings, queue, results_up, on_change }
     }
 
     /// Sync failures never fail the save; the log is already on disk.
@@ -96,13 +104,20 @@ impl<S: LogSink> SyncingLogSink<S> {
             Ok(name) => name,
             Err(e) => return tracing::warn!("sync: {e}"),
         };
-        // Check under the queue lock so the worker can't release between the check and the enqueue.
-        let queue = delivery_queue::lock(&self.queue);
-        let release = if (self.results_up)() { Release::AfterResults } else { Release::Now };
-        for destination in settings::current(&self.settings).destinations.iter().filter(|d| d.enabled) {
-            if let Err(e) = queue.enqueue(&file_name, &destination.id, release) {
-                tracing::warn!("sync: couldn't queue {file_name} for {}: {e}", destination.name);
+        let mut queued = false;
+        {
+            // Check under the queue lock so the worker can't release between the check and the enqueue.
+            let queue = delivery_queue::lock(&self.queue);
+            let release = if (self.results_up)() { Release::AfterResults } else { Release::Now };
+            for destination in settings::current(&self.settings).destinations.iter().filter(|d| d.enabled) {
+                match queue.enqueue(&file_name, &destination.id, release) {
+                    Ok(()) => queued = true,
+                    Err(e) => tracing::warn!("sync: couldn't queue {file_name} for {}: {e}", destination.name),
+                }
             }
+        }
+        if queued {
+            (self.on_change)();
         }
     }
 }
@@ -199,7 +214,7 @@ mod tests {
     mod syncing {
         use std::collections::BTreeMap;
         use std::path::Path;
-        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::{Arc, Mutex, RwLock};
 
         use super::*;
@@ -218,27 +233,32 @@ mod tests {
             }
         }
 
-        fn rig(results_up: bool) -> (SyncingLogSink<StoreLogSink<MemStore>>, SharedQueue, Arc<AtomicBool>) {
+        /// The sink, its queue, and how many times it reported a sync change.
+        fn rig(results_up: bool) -> (SyncingLogSink<StoreLogSink<MemStore>>, SharedQueue, Arc<AtomicUsize>) {
             let settings = Settings {
                 destinations: vec![destination("on", true), destination("off", false)],
                 ..Settings::defaults(Path::new("/logs"))
             };
             let queue: SharedQueue = Arc::new(Mutex::new(DeliveryQueue::open_in_memory().unwrap()));
-            let up = Arc::new(AtomicBool::new(results_up));
-            let flag = Arc::clone(&up);
+            let changes = Arc::new(AtomicUsize::new(0));
+            let counter = Arc::clone(&changes);
             let sink = SyncingLogSink::new(
                 StoreLogSink::new(MemStore::default()),
                 Arc::new(RwLock::new(settings)),
                 Arc::clone(&queue),
-                Box::new(move || flag.load(Ordering::SeqCst)),
+                Box::new(move || results_up),
+                Box::new(move || {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }),
             );
-            (sink, queue, up)
+            (sink, queue, changes)
         }
 
         #[test]
         fn a_save_queues_each_enabled_destination() {
-            let (sink, queue, _) = rig(false);
+            let (sink, queue, changes) = rig(false);
             sink.submit(LOG).unwrap();
+            assert_eq!(changes.load(Ordering::SeqCst), 1, "the UI hears about it");
             let all = delivery_queue::lock(&queue).all().unwrap();
             assert_eq!(all.len(), 1);
             assert_eq!((all[0].log.as_str(), all[0].destination.as_str()), ("1.txt", "on"));
@@ -254,11 +274,12 @@ mod tests {
 
         #[test]
         fn a_repeat_or_rejected_paste_queues_nothing() {
-            let (sink, queue, _) = rig(false);
+            let (sink, queue, changes) = rig(false);
             sink.submit(LOG).unwrap();
             sink.submit(LOG).unwrap();
             let _ = sink.submit("hello");
             assert_eq!(delivery_queue::lock(&queue).all().unwrap().len(), 1);
+            assert_eq!(changes.load(Ordering::SeqCst), 1);
         }
     }
 }

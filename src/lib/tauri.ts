@@ -1,10 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/** A destination paused because it rejected its token. */
+export interface Attention {
+  destination: string;
+  reason: string;
+}
+
 export interface CaptureStatusEvent {
   detail: null | string;
   message: string;
   state: string;
   ts: number;
+}
+
+/** One delivery of a saved log to a destination. Held deliveries read as pending. */
+export interface DeliveryStatus {
+  destination: string;
+  lastError: null | string;
+  /** The saved log's file name. */
+  log: string;
+  state: SyncState;
 }
 
 export interface Destination {
@@ -49,11 +64,19 @@ export interface Settings {
 
 export type SubmitOutcome = { kind: "alreadySaved" } | { kind: "saved"; path: string };
 
+export type SyncState = "failed" | "pending" | "synced";
+
+export interface SyncStatus {
+  attention: Attention[];
+  deliveries: DeliveryStatus[];
+}
+
 /** `embedded`: the config has a token. `optional`: blank keeps the current token. */
 export type TokenPrompt = "embedded" | "optional" | "required";
 
 export const OVERLAY_STATE_EVENT = "overlay://state";
 export const SETTINGS_CHANGED_EVENT = "settings://changed";
+export const SYNC_CHANGED_EVENT = "sync://changed";
 
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (s: Settings) => invoke<Settings>("save_settings", { s });
@@ -84,4 +107,11 @@ export const setDestinationEnabled = (id: string, enabled: boolean) =>
   invoke<void>("set_destination_enabled", { enabled, id });
 export const removeDestination = (id: string) => invoke<void>("remove_destination", { id });
 export const openTokenPage = (config: string) => invoke<void>("open_token_page", { config });
+export const openDestinationTokenPage = (id: string) => invoke<void>("open_destination_token_page", { id });
+export const setDestinationToken = (id: string, token: string) =>
+  invoke<void>("set_destination_token", { id, token });
+export const retryDestination = (id: string) => invoke<void>("retry_destination", { id });
+export const getSyncStatus = () => invoke<SyncStatus>("get_sync_status");
+export const syncLog = (fileName: string, destinationId: string) =>
+  invoke<void>("sync_log", { destinationId, fileName });
 export const CAPTURE_STATUS_EVENT = "capture-status";

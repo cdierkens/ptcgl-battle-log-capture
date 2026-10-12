@@ -1,4 +1,4 @@
-import { MoreHorizontal } from "lucide-react";
+import { CloudAlert, CloudCheck, CloudUpload, type LucideIcon, MoreHorizontal } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { LoadingButton } from "@/components/LoadingButton";
@@ -19,20 +19,46 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
+import type { Destination, SyncState, SyncStatus } from "../lib/tauri";
 import type { Match, MatchesView } from "../lib/use-matches";
 
 import { matchRow, type MatchRow } from "../lib/match-row";
-import { deleteLog, revealLog } from "../lib/tauri";
+import { deliveriesFor, matchSyncState, syncActions } from "../lib/sync-status";
+import { deleteLog, revealLog, syncLog } from "../lib/tauri";
 import { useNow } from "../lib/use-now";
 
 const RESULT_VARIANT = { "—": "secondary", L: "destructive", W: "default" } as const;
 
-export function MatchList({ matches, playerName }: { matches: MatchesView; playerName: string }) {
+const SYNC_LOOK: Record<SyncState, { icon: LucideIcon; label: string }> = {
+  failed: { icon: CloudAlert, label: "Sync failed" },
+  pending: { icon: CloudUpload, label: "Waiting to sync" },
+  synced: { icon: CloudCheck, label: "Synced" },
+};
+
+interface MatchDetailProps {
+  actions: ReactNode;
+  destinations: Destination[];
+  match: Match;
+  onBack: () => void;
+  row: MatchRow;
+  sync: null | SyncStatus;
+}
+
+interface MatchListProps {
+  destinations: Destination[];
+  matches: MatchesView;
+  playerName: string;
+  sync: null | SyncStatus;
+}
+
+export function MatchList({ destinations, matches, playerName, sync }: MatchListProps) {
   const [selected, setSelected] = useState<null | string>(null);
   const [pendingDelete, setPendingDelete] = useState<Match | null>(null);
   const [actionError, setActionError] = useState<null | string>(null);
@@ -74,6 +100,11 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
     revealLog(match.log.fileName).catch((err: unknown) => setActionError(String(err)));
   };
 
+  const sendToDestination = (match: Match, destinationId: string) => {
+    setActionError(null);
+    syncLog(match.log.fileName, destinationId).catch((err: unknown) => setActionError(String(err)));
+  };
+
   const confirmDelete = () => {
     if (pendingDelete === null) return;
     const fileName = pendingDelete.log.fileName;
@@ -96,6 +127,12 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => copy(match)}>Copy Battle Log</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => reveal(match)}>Show in Finder</DropdownMenuItem>
+        {syncActions(sync, match.log.fileName, destinations).map((action) => (
+          <DropdownMenuItem key={action.destinationId} onSelect={() => sendToDestination(match, action.destinationId)}>
+            {action.label}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => setPendingDelete(match)} variant="destructive">
           Delete…
         </DropdownMenuItem>
@@ -129,7 +166,14 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
   if (detail !== undefined) {
     return (
       <>
-        <MatchDetail actions={actions(detail)} match={detail} onBack={() => setSelected(null)} row={matchRow(detail.log, detail.analysis, now)} />
+        <MatchDetail
+          actions={actions(detail)}
+          destinations={destinations}
+          match={detail}
+          onBack={() => setSelected(null)}
+          row={matchRow(detail.log, detail.analysis, now)}
+          sync={sync}
+        />
         {actionError !== null ? <StatusAlert className="m-4" tone="critical">{actionError}</StatusAlert> : null}
         {dialog}
       </>
@@ -167,7 +211,7 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
                 onClick={() => setSelected(row.fileName)}
                 variant="ghost"
               >
-                <RowContent row={row} />
+                <RowContent row={row} sync={matchSyncState(sync, row.fileName, destinations)} />
               </Button>
               {actions(match)}
             </li>
@@ -179,8 +223,10 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
   );
 }
 
-function MatchDetail({ actions, match, onBack, row }: { actions: ReactNode; match: Match; onBack: () => void; row: MatchRow }) {
+function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchDetailProps) {
   const [showRaw, setShowRaw] = useState(false);
+  const names = new Map(destinations.map((d) => [d.id, d.name]));
+  const deliveries = deliveriesFor(sync, row.fileName, destinations);
   const summary = match.analysis?.summary;
   return (
     <div className="space-y-3 p-4">
@@ -191,7 +237,7 @@ function MatchDetail({ actions, match, onBack, row }: { actions: ReactNode; matc
         {actions}
       </div>
       <div className="flex items-center gap-3">
-        <RowContent row={row} />
+        <RowContent row={row} sync={null} />
       </div>
       {summary === undefined ? (
         <p className="text-sm text-muted-foreground">This Battle Log couldn't be summarized.</p>
@@ -207,6 +253,21 @@ function MatchDetail({ actions, match, onBack, row }: { actions: ReactNode; matc
           <dd className="text-foreground">{summary.turnCount}</dd>
         </dl>
       )}
+      {deliveries.length > 0 ? (
+        <ul aria-label="Sync" className="space-y-1 text-sm">
+          {deliveries.map((delivery) => (
+            <li className="flex items-start gap-2" key={delivery.destination}>
+              <SyncIcon decorative state={delivery.state} />
+              <span className="min-w-0">
+                {names.get(delivery.destination)}: {SYNC_LOOK[delivery.state].label.toLowerCase()}
+                {delivery.state !== "synced" && delivery.lastError !== null ? (
+                  <span className="block text-xs text-muted-foreground">{delivery.lastError}</span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <Button aria-expanded={showRaw} onClick={() => setShowRaw((open) => !open)} size="sm" variant="outline">
         {showRaw ? "Hide raw log" : "View raw log"}
       </Button>
@@ -219,7 +280,7 @@ function MatchDetail({ actions, match, onBack, row }: { actions: ReactNode; matc
   );
 }
 
-function RowContent({ row }: { row: MatchRow }) {
+function RowContent({ row, sync }: { row: MatchRow; sync: null | SyncState }) {
   return (
     <>
       <Badge className="w-7 shrink-0 justify-center" variant={row.result === null ? "outline" : RESULT_VARIANT[row.result]}>
@@ -231,6 +292,14 @@ function RowContent({ row }: { row: MatchRow }) {
           {row.prizes === null ? row.when : `Prizes ${row.prizes} · ${row.when}`}
         </span>
       </span>
+      {sync === null ? null : <SyncIcon state={sync} />}
     </>
   );
+}
+
+/** `decorative` when text beside it already says the state. */
+function SyncIcon({ decorative = false, state }: { decorative?: boolean; state: SyncState }) {
+  const { icon: Icon, label } = SYNC_LOOK[state];
+  const className = cn("size-4 shrink-0", state === "failed" ? "text-destructive" : "text-muted-foreground");
+  return decorative ? <Icon aria-hidden className={className} /> : <Icon aria-label={label} className={className} role="img" />;
 }

@@ -21,6 +21,7 @@ pub mod platform;
 pub mod ports;
 pub mod settings;
 pub mod sink;
+pub mod sync_status;
 pub mod sync_worker;
 pub mod title;
 
@@ -67,6 +68,11 @@ pub fn run() {
             commands::set_destination_enabled,
             commands::remove_destination,
             commands::open_token_page,
+            commands::open_destination_token_page,
+            commands::set_destination_token,
+            commands::retry_destination,
+            commands::get_sync_status,
+            commands::sync_log,
         ])
         // The drawer is the everyday UI; closing the main window only hides it (⌘Q quits).
         .on_window_event(|window, event| {
@@ -100,6 +106,7 @@ pub fn run() {
                 shared.clone(),
                 queue.clone(),
                 results_up(state_cell.clone()),
+                sync_changed(app.handle()),
             ));
             app.manage(sink.clone());
             spawn_sync_worker(app.handle(), queue, shared.clone(), secrets, results_up(state_cell.clone()));
@@ -119,6 +126,11 @@ pub fn run() {
         });
 }
 
+fn sync_changed(app: &tauri::AppHandle) -> sync_status::SyncChanged {
+    let app = app.clone();
+    Box::new(move || commands::sync_changed(&app))
+}
+
 /// Losing the game window counts as leaving results: the overlay, and its Undo, go with it.
 fn results_up(state: std::sync::Arc<std::sync::Mutex<overlay_state::OverlayState>>) -> sink::ResultsUp {
     Box::new(move || {
@@ -135,12 +147,15 @@ fn spawn_sync_worker(
     results_up: sink::ResultsUp,
 ) {
     let app_version = app.package_info().version.to_string();
+    let app = app.clone();
     std::thread::spawn(move || {
         let transport = match platform::http::HttpTransport::new(&app_version) {
             Ok(t) => t,
             Err(e) => return tracing::error!("sync disabled, HTTP client failed to start: {e}"),
         };
-        sync_worker::Worker { queue, settings, secrets, transport: Box::new(transport), results_up, app_version }.run()
+        let on_change = sync_changed(&app);
+        let transport = Box::new(transport);
+        sync_worker::Worker { queue, settings, secrets, transport, results_up, app_version, on_change }.run()
     });
 }
 

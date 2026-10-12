@@ -18,25 +18,38 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
+import type { SyncStatus } from "../lib/tauri";
 import type { SettingsView } from "../lib/use-settings";
 
 import { canConfirm, hostOf, tokenToSend } from "../lib/destinations";
+import { attentionReason } from "../lib/sync-status";
 import {
   type Destination,
   importDestination,
   type ImportPreview,
+  openDestinationTokenPage,
   openTokenPage,
   previewDestination,
   removeDestination,
+  retryDestination,
   setDestinationEnabled,
+  setDestinationToken,
 } from "../lib/tauri";
 
 type Confirming = { config: string; preview: ImportPreview; token: string; type: "confirming" };
 
+interface NeedsAttentionProps {
+  busy: boolean;
+  destination: Destination;
+  onError: (err: unknown) => void;
+  reason: string;
+  run: (action: () => Promise<void>) => void;
+}
+
 type Step = Confirming | { config: string; type: "pasting" } | { type: "idle" };
 
 /** Sync destinations: paste a site's config, confirm it, then enable, disable, or remove. */
-export function DestinationsSetting({ settings }: { settings: SettingsView }) {
+export function DestinationsSetting({ settings, sync }: { settings: SettingsView; sync: null | SyncStatus }) {
   const destinations = settings.settings?.destinations ?? [];
   const [step, setStep] = useState<Step>({ type: "idle" });
   const [busy, setBusy] = useState(false);
@@ -50,6 +63,8 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setBusy(false));
   };
+
+  const fail = (err: unknown) => setError(String(err));
 
   const cancel = () => {
     setStep({ type: "idle" });
@@ -78,8 +93,11 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
       <FieldTitle>Sync</FieldTitle>
       <FieldDescription>Sends each saved Battle Log to a site you use. Copy the destination config from the site and paste it here.</FieldDescription>
 
-      {destinations.map((destination) => (
-        <div className="flex items-center gap-3 py-1" key={destination.id}>
+      {destinations.map((destination) => {
+        const reason = attentionReason(sync, destination.id);
+        return (
+        <div className="space-y-2 py-1" key={destination.id}>
+        <div className="flex items-center gap-3">
           <Switch
             checked={destination.enabled}
             disabled={busy}
@@ -94,7 +112,12 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
             Remove…
           </Button>
         </div>
-      ))}
+        {reason === null ? null : (
+          <NeedsAttention busy={busy} destination={destination} onError={fail} reason={reason} run={run} />
+        )}
+        </div>
+        );
+      })}
 
       {step.type === "idle" ? (
         <div className="pt-1">
@@ -203,5 +226,70 @@ export function DestinationsSetting({ settings }: { settings: SettingsView }) {
         </AlertDialogContent>
       </AlertDialog>
     </Field>
+  );
+}
+
+/** A paused destination: why, plus Paste token and Retry sync. */
+function NeedsAttention({ busy, destination, onError, reason, run }: NeedsAttentionProps) {
+  const [token, setToken] = useState<null | string>(null);
+  const inputId = `destination-token-${destination.id}`;
+
+  if (token !== null) {
+    return (
+      <Field className="rounded-md border p-3">
+        <FieldLabel htmlFor={inputId}>New token for {destination.name}</FieldLabel>
+        <Input
+          autoComplete="off"
+          autoFocus
+          id={inputId}
+          onChange={(event) => setToken(event.target.value)}
+          type="password"
+          value={token}
+        />
+        {destination.token_url === null ? null : (
+          <FieldDescription>
+            <Button
+              className="h-auto p-0"
+              onClick={() => openDestinationTokenPage(destination.id).catch(onError)}
+              size="sm"
+              variant="link"
+            >
+              Get a token from {hostOf(destination.token_url)}
+            </Button>
+          </FieldDescription>
+        )}
+        <div className="flex gap-2">
+          <LoadingButton
+            disabled={token.trim() === ""}
+            loading={busy}
+            onClick={() => run(() => setDestinationToken(destination.id, token).then(() => setToken(null)))}
+            size="sm"
+          >
+            Save token
+          </LoadingButton>
+          <Button onClick={() => setToken(null)} size="sm" variant="ghost">
+            Cancel
+          </Button>
+        </div>
+      </Field>
+    );
+  }
+
+  return (
+    <StatusAlert
+      actions={
+        <>
+          <Button disabled={busy} onClick={() => setToken("")} size="sm" variant="outline">
+            Paste token…
+          </Button>
+          <Button disabled={busy} onClick={() => run(() => retryDestination(destination.id))} size="sm" variant="ghost">
+            Retry sync
+          </Button>
+        </>
+      }
+      tone="caution"
+    >
+      {destination.name} needs attention: {reason} Syncing to it is paused.
+    </StatusAlert>
   );
 }

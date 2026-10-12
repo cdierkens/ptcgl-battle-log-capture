@@ -32,7 +32,7 @@ directly in `src-tauri` needs a built UI in `dist/` first (`pnpm build`), becaus
 
 To try log sync without a real site, run `pnpm sync-stub` and paste the config it
 prints into Settings → Sync. Only debug builds accept its `http://localhost` URL.
-`STUB_STATUS=401 pnpm sync-stub` forces a status.
+`STUB_STATUS=401 pnpm sync-stub` forces a status (401 shows needs attention).
 
 ## Where things live
 

@@ -59,7 +59,7 @@ pub struct Delivery {
 }
 
 /// A destination paused because it rejected its token.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Attention {
     pub destination: String,
     pub reason: String,

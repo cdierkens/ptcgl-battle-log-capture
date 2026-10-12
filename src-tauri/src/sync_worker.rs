@@ -16,6 +16,7 @@ use crate::logs;
 use crate::ports::{DeliveryRequest, DeliveryTransport, SecretStore};
 use crate::settings::{self, Settings, SharedSettings};
 use crate::sink::ResultsUp;
+use crate::sync_status::SyncChanged;
 
 /// Also how soon a held delivery is released after the results screen goes away.
 const TICK: Duration = Duration::from_secs(1);
@@ -60,17 +61,22 @@ pub struct Worker {
     /// Held deliveries wait while this is true (Undo is still possible).
     pub results_up: ResultsUp,
     pub app_version: String,
+    /// Called after a tick that recorded a send's outcome.
+    pub on_change: SyncChanged,
 }
 
 impl Worker {
     pub fn run(self) -> ! {
         loop {
-            self.tick(now_ms());
+            if self.tick(now_ms()) {
+                (self.on_change)();
+            }
             std::thread::sleep(TICK);
         }
     }
 
-    pub fn tick(&self, now: i64) {
+    /// Whether any send's outcome was recorded.
+    pub fn tick(&self, now: i64) -> bool {
         let due = {
             // Check under the queue lock so a save can't be held between the check and the release.
             let queue = delivery_queue::lock(&self.queue);
@@ -79,19 +85,26 @@ impl Worker {
             }
             match queue.due(now) {
                 Ok(due) => due,
-                Err(e) => return warn!("sync: couldn't read the queue: {e}"),
+                Err(e) => {
+                    warn!("sync: couldn't read the queue: {e}");
+                    return false;
+                }
             }
         };
         let mut tokens = HashMap::new();
         let mut paused = HashSet::new();
+        let mut changed = false;
         for delivery in due {
             if paused.contains(&delivery.destination) {
                 continue;
             }
-            if let Some(Outcome::NeedsAttention(_)) = self.deliver(&delivery, &mut tokens, now) {
+            let outcome = self.deliver(&delivery, &mut tokens, now);
+            changed |= outcome.is_some();
+            if let Some(Outcome::NeedsAttention(_)) = outcome {
                 paused.insert(delivery.destination);
             }
         }
+        changed
     }
 
     /// Sends one delivery and records the result. `None` when nothing was sent.
@@ -244,6 +257,7 @@ mod tests {
                 transport: Box::new(Arc::clone(&transport)),
                 results_up: Box::new(move || up.load(Ordering::SeqCst)),
                 app_version: "1.2.3".into(),
+                on_change: Box::new(|| {}),
             };
             Self { worker, transport, results_up, dir }
         }
@@ -269,6 +283,16 @@ mod tests {
             f(&mut s);
             settings::replace(&self.worker.settings, s);
         }
+    }
+
+    #[test]
+    fn a_tick_reports_whether_it_recorded_an_outcome() {
+        let rig = Rig::new("changed");
+        assert!(!rig.worker.tick(0), "nothing queued");
+        rig.enqueue(Release::Now);
+        rig.respond(Ok(201));
+        assert!(rig.worker.tick(0));
+        assert!(!rig.worker.tick(0), "already synced");
     }
 
     #[test]
