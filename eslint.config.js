@@ -11,19 +11,17 @@ export default tseslint.config(
   js.configs.recommended,
   tseslint.configs.recommended,
   perfectionist.configs["recommended-natural"],
+  reactHooks.configs.flat["recommended-latest"],
   {
     languageOptions: {
       globals: globals.browser,
     },
-    // Classic hooks rules only; the React Compiler rules are a separate follow-up.
-    plugins: { "react-hooks": reactHooks },
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "react-hooks/exhaustive-deps": "error",
-      "react-hooks/rules-of-hooks": "error",
     },
   },
 );
