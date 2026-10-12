@@ -7,13 +7,14 @@ import { Field, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
+import type { SyncStatus } from "../lib/tauri";
 import type { SettingsView } from "../lib/use-settings";
 
 import { openLogsFolder, pickOutputDir } from "../lib/tauri";
 import { ClipboardSetting } from "./ClipboardSetting";
 import { DestinationsSetting } from "./DestinationsSetting";
 
-export function SettingsTab({ settings }: { settings: SettingsView }) {
+export function SettingsTab({ settings, sync }: { settings: SettingsView; sync: null | SyncStatus }) {
   const current = settings.settings;
   const [name, setName] = useState(current?.player_name ?? "");
   const [syncedFrom, setSyncedFrom] = useState(current);
@@ -107,7 +108,7 @@ export function SettingsTab({ settings }: { settings: SettingsView }) {
 
       <ClipboardSetting settings={settings} />
 
-      <DestinationsSetting settings={settings} />
+      <DestinationsSetting settings={settings} sync={sync} />
     </div>
   );
 }

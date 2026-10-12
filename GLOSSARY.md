@@ -88,7 +88,7 @@ A complete set of colour and shape tokens that restyles the whole app without ch
 its behaviour.
 _Avoid_: skin, palette, brand
 
-### Sync (planned)
+### Sync
 
 **Sync**:
 Sending saved logs to the player's destinations. One way only: nothing comes back from a
@@ -111,3 +111,8 @@ _Avoid_: payload, body mapping
 **Delivery**:
 Syncing one saved log to one destination, including its retries.
 _Avoid_: upload (as a noun), push
+
+**Needs attention**:
+A destination paused because it rejected its token. Its deliveries wait until the player
+pastes a new token or retries.
+_Avoid_: broken, disconnected, auth error

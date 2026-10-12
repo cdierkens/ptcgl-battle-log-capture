@@ -265,6 +265,22 @@ pub fn import(
     Ok(id)
 }
 
+/// A pasted replacement token: saved to the keychain, and the destination resumes.
+pub fn replace_token(
+    destinations: &[Destination],
+    secrets: &dyn SecretStore,
+    queue: &DeliveryQueue,
+    id: &str,
+    token: &str,
+) -> Result<(), DestinationError> {
+    if !destinations.iter().any(|d| d.id == id) {
+        return Err(DestinationError::NotFound);
+    }
+    secrets.set(id, &validate_token(token)?)?;
+    queue.clear_attention(id)?;
+    Ok(())
+}
+
 pub fn set_enabled(destinations: &mut [Destination], id: &str, enabled: bool) -> Result<(), DestinationError> {
     let destination = destinations.iter_mut().find(|d| d.id == id).ok_or(DestinationError::NotFound)?;
     destination.enabled = enabled;
@@ -516,6 +532,20 @@ mod tests {
         assert_eq!(secrets.get(&id).unwrap(), None);
         assert!(queue.all().unwrap().is_empty());
         assert!(matches!(remove(&mut dests, &id), Err(DestinationError::NotFound)));
+    }
+
+    #[test]
+    fn a_replacement_token_is_saved_and_resumes_the_destination() {
+        let (mut dests, secrets, queue) = setup();
+        let id = import(&mut dests, &secrets, &queue, parse_config(ASKS_FOR_TOKEN).unwrap(), Some("old")).unwrap();
+        queue.flag_attention(&id, "rejected").unwrap();
+        assert!(matches!(replace_token(&dests, &secrets, &queue, &id, " "), Err(DestinationError::Config(_))));
+        assert_eq!(queue.needing_attention().unwrap().len(), 1, "a bad token changes nothing");
+        replace_token(&dests, &secrets, &queue, &id, " new ").unwrap();
+        assert_eq!(secrets.get(&id).unwrap().as_deref(), Some("new"));
+        assert!(queue.needing_attention().unwrap().is_empty());
+        assert!(matches!(replace_token(&dests, &secrets, &queue, "gone", "t"), Err(DestinationError::NotFound)));
+        assert_eq!(secrets.get("gone").unwrap(), None);
     }
 
     #[test]

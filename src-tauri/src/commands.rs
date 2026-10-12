@@ -7,7 +7,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::{ClipboardAccess, ClipboardProbe};
-use crate::delivery_queue::{self, DeliveryQueue, SharedQueue};
+use crate::delivery_queue::{self, DeliveryQueue, Release, SharedQueue};
 use crate::destinations::{self, Destination, DestinationError, ImportPreview};
 use crate::diagnostics::Diagnostics;
 use crate::logs::{self, LogSummary};
@@ -17,6 +17,7 @@ use crate::platform::permission::ScreenRecordingAccess;
 use crate::ports::{OverlayPresenter, ScreenCaptureAccess, SecretStore};
 use crate::settings::{self, Settings, SettingsPaths, SharedSettings};
 use crate::sink::{LogSink, SubmitError, SubmitOutcome};
+use crate::sync_status::{self, SyncStatus, SYNC_CHANGED_EVENT};
 
 #[tauri::command]
 pub fn is_first_run(paths: State<'_, SettingsPaths>) -> bool {
@@ -73,6 +74,7 @@ fn change_destinations<T>(
         change(&mut next.destinations, secrets.inner().as_ref(), &queue).map_err(|e| e.to_string())?
     };
     apply_settings(app, next)?;
+    sync_changed(app);
     Ok(out)
 }
 
@@ -119,6 +121,69 @@ pub fn open_token_page(config: String, app: AppHandle) -> Result<(), String> {
     let parsed = destinations::parse_config(&config).map_err(|e| e.to_string())?;
     let url = parsed.token_url.ok_or("This config has no token page.")?;
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Opens a configured destination's token page, for pasting a replacement token.
+#[tauri::command]
+pub fn open_destination_token_page(id: String, app: AppHandle) -> Result<(), String> {
+    let settings = settings::current(&app.state::<SharedSettings>());
+    let destination =
+        settings.destinations.iter().find(|d| d.id == id).ok_or(DestinationError::NotFound.to_string())?;
+    let url = destination.token_url.clone().ok_or("This destination has no token page.")?;
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Saves a replacement token for a destination that needs attention, which resumes it.
+#[tauri::command]
+pub fn set_destination_token(id: String, token: String, app: AppHandle) -> Result<(), String> {
+    {
+        // Under the settings lock so a concurrent remove can't orphan the keychain entry.
+        let _write = settings_write();
+        let settings = settings::current(&app.state::<SharedSettings>());
+        let secrets = app.state::<Arc<dyn SecretStore>>();
+        let shared_queue = app.state::<SharedQueue>();
+        let queue = delivery_queue::lock(&shared_queue);
+        destinations::replace_token(&settings.destinations, secrets.inner().as_ref(), &queue, &id, &token)
+            .map_err(|e| e.to_string())?;
+    }
+    sync_changed(&app);
+    Ok(())
+}
+
+/// Resumes a paused destination with its current token.
+#[tauri::command]
+pub fn retry_destination(id: String, app: AppHandle) -> Result<(), String> {
+    delivery_queue::lock(&app.state::<SharedQueue>()).clear_attention(&id).map_err(|e| e.to_string())?;
+    sync_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_sync_status(queue: State<'_, SharedQueue>) -> Result<SyncStatus, String> {
+    sync_status::read(&delivery_queue::lock(&queue)).map_err(|e| e.to_string())
+}
+
+/// Sends one saved log to a destination now: a first sync for an older match, or a retry.
+#[tauri::command]
+pub fn sync_log(file_name: String, destination_id: String, app: AppHandle) -> Result<(), String> {
+    let settings = settings::current(&app.state::<SharedSettings>());
+    let destination =
+        settings.destinations.iter().find(|d| d.id == destination_id).ok_or(DestinationError::NotFound.to_string())?;
+    if !destination.enabled {
+        return Err(format!("{} is turned off in Settings.", destination.name));
+    }
+    logs::resolve_log_path(&PathBuf::from(&settings.output_dir), &file_name)?;
+    delivery_queue::lock(&app.state::<SharedQueue>())
+        .enqueue(&file_name, &destination_id, Release::Now)
+        .map_err(|e| e.to_string())?;
+    sync_changed(&app);
+    Ok(())
+}
+
+pub fn sync_changed(app: &AppHandle) {
+    if let Err(e) = app.emit(SYNC_CHANGED_EVENT, ()) {
+        tracing::warn!("failed to emit sync changed: {e}");
+    }
 }
 
 fn output_dir(settings: &SharedSettings) -> PathBuf {

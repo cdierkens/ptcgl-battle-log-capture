@@ -7,9 +7,11 @@ import type { CaptureStatusEvent } from "../lib/tauri";
 
 import { chipForState, isResultsState } from "../lib/capture-status";
 import { needsAttention } from "../lib/status-history";
+import { syncNeedsAttention } from "../lib/sync-status";
 import { useMatches } from "../lib/use-matches";
 import { useOverlayState } from "../lib/use-overlay-state";
 import { useSettings } from "../lib/use-settings";
+import { useSyncStatus } from "../lib/use-sync-status";
 import { HelpTab } from "./HelpTab";
 import { MatchCard } from "./MatchCard";
 import { MatchList } from "./MatchList";
@@ -28,9 +30,11 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
   const settings = useSettings();
   const playerName = settings.settings?.player_name ?? "";
   const matches = useMatches(playerName);
+  const sync = useSyncStatus();
+  const destinations = settings.settings?.destinations ?? [];
   const chip = overlay.state === null ? null : chipForState(overlay.state);
   const attention = needsAttention(history);
-  const errors = [overlay.error, settings.error, historyError].filter((e): e is string => e !== null);
+  const errors = [overlay.error, settings.error, historyError, sync.error].filter((e): e is string => e !== null);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -62,27 +66,34 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
       <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="matches">
         <TabsList aria-label="Sections" className="mx-4 mt-2" variant="line">
           <TabsTrigger value="matches">Matches</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="settings">
+            Settings
+            {syncNeedsAttention(sync.status, destinations) ? <AttentionDot /> : null}
+          </TabsTrigger>
           <TabsTrigger value="help">
             Help
-            {attention ? (
-              <>
-                <span aria-hidden className="ml-1 inline-block size-2 rounded-full bg-destructive" />
-                <span className="sr-only">(needs attention)</span>
-              </>
-            ) : null}
+            {attention ? <AttentionDot /> : null}
           </TabsTrigger>
         </TabsList>
         <TabsContent className="min-h-0 overflow-y-auto" value="matches">
-          <MatchList matches={matches} playerName={playerName} />
+          <MatchList destinations={destinations} matches={matches} playerName={playerName} sync={sync.status} />
         </TabsContent>
         <TabsContent className="min-h-0 overflow-y-auto" value="settings">
-          <SettingsTab settings={settings} />
+          <SettingsTab settings={settings} sync={sync.status} />
         </TabsContent>
         <TabsContent className="min-h-0 overflow-y-auto" value="help">
           <HelpTab history={history} state={overlay.state} />
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function AttentionDot() {
+  return (
+    <>
+      <span aria-hidden className="ml-1 inline-block size-2 rounded-full bg-destructive" />
+      <span className="sr-only">(needs attention)</span>
+    </>
   );
 }

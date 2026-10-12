@@ -7,17 +7,21 @@ import { cn } from "@/lib/utils";
 import { Hub } from "../components/Hub";
 import { nextDrawerOpen } from "../lib/capture-drawer";
 import { handleForState, isResultsState } from "../lib/capture-status";
+import { syncNeedsAttention } from "../lib/sync-status";
 import { setDrawerOpen } from "../lib/tauri";
 import { useOverlayState } from "../lib/use-overlay-state";
 import { useSettings } from "../lib/use-settings";
 import { useStatusHistory } from "../lib/use-status-history";
+import { useSyncStatus } from "../lib/use-sync-status";
 
 /** Matches the panel's `duration-200` slide. */
 const SLIDE_MS = 200;
 
 export function CaptureDrawer() {
   const { error: bridgeError, state } = useOverlayState();
-  const prompts = useSettings().settings?.prompt_after_match ?? true;
+  const settings = useSettings().settings;
+  const prompts = settings?.prompt_after_match ?? true;
+  const syncAttention = syncNeedsAttention(useSyncStatus().status, settings?.destinations ?? []);
   const { error: historyError, history } = useStatusHistory();
   const [open, setOpen] = useState(false);
   const [focusPaste, setFocusPaste] = useState(false);
@@ -82,9 +86,9 @@ export function CaptureDrawer() {
     return (
       <div className="flex h-screen w-screen">
         <Button
-          aria-label={`${handle.label}: open the Battle Log Capture drawer`}
+          aria-label={`${handle.label}${syncAttention ? " (sync needs attention)" : ""}: open the Battle Log Capture drawer`}
           className={cn(
-            "h-full w-full",
+            "relative h-full w-full",
             handle.pulse && "animate-pulse [animation-iteration-count:3] motion-reduce:animate-none",
           )}
           onClick={() => {
@@ -95,6 +99,9 @@ export function CaptureDrawer() {
           variant={handle.variant}
         >
           {handle.label}
+          {syncAttention ? (
+            <span aria-hidden className="absolute top-1 right-1 size-2 rounded-full bg-destructive" />
+          ) : null}
         </Button>
       </div>
     );
