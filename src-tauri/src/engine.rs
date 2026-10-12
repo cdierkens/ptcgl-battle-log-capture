@@ -140,21 +140,17 @@ impl EngineCtx {
         if shield != Some(ShieldStatus::Saved) {
             self.last_autosave = None;
         }
-        // Also watch during warm-up: a log copied then is read only if results are detected in
-        // the poll that warm-up ends; any other state disarms, dropping the warm-up baseline.
-        let watching = shield.is_some() || self.state == OverlayState::WarmingUp;
-        if !self.autosave || self.autosave_error.is_some() || !watching {
+        if !self.autosave || self.autosave_error.is_some() || shield.is_none() {
             self.clipboard.disarm();
             return None;
         }
         let count = clipboard.change_count();
-        // Baseline on first watch; re-baseline while unfocused so other apps' copies are never read.
+        // Baseline on entering results; re-baseline while unfocused so other apps' copies are never read.
         if !self.clipboard.is_armed() || !self.game_focused {
             self.clipboard.arm(count);
             return None;
         }
-        let shield = shield?;
-        if !self.clipboard.changed(count) || shield == ShieldStatus::Saved {
+        if !self.clipboard.changed(count) || shield == Some(ShieldStatus::Saved) {
             return None;
         }
         if clipboard.access() == ClipboardAccess::Denied {
@@ -639,33 +635,17 @@ mod tests {
     }
 
     #[test]
-    fn a_log_copied_during_warm_up_is_saved_on_the_results_screen() {
+    fn auto_save_is_off_during_warm_up() {
         let (clip, sink, presenter) = (FakeClipboard::holding_a_log(), sink(), RecordingPresenter::default());
         let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
         ctx.set_autosave(true);
         poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
-        assert_eq!(ctx.autosave(&clip, &sink), None, "the log already copied is the baseline");
-        clip.copy(COPIED_LOG);
-        assert_eq!(ctx.autosave(&clip, &sink), None, "no results screen yet");
-        ctx.set_recognizer_ready(true);
-        poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
-        assert_eq!(ctx.autosave(&clip, &sink), Some("/logs/1.txt".to_string()));
-        assert_eq!(shield(&ctx), Some(ShieldStatus::Saved));
-    }
-
-    #[test]
-    fn a_warm_up_copy_is_dropped_once_the_match_moves_on() {
-        let (clip, sink, presenter) = (FakeClipboard::holding_a_log(), sink(), RecordingPresenter::default());
-        let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
-        ctx.set_autosave(true);
-        poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &presenter);
         ctx.autosave(&clip, &sink);
         clip.copy(COPIED_LOG);
-        ctx.set_recognizer_ready(true);
-        poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &presenter);
         assert_eq!(ctx.autosave(&clip, &sink), None);
+        ctx.set_recognizer_ready(true);
         poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
-        assert_eq!(ctx.autosave(&clip, &sink), None, "the earlier match's copy is the baseline");
+        assert_eq!(ctx.autosave(&clip, &sink), None, "the warm-up copy is the baseline");
         assert_eq!(clip.reads.get(), 0);
         assert_eq!(shield(&ctx), Some(ShieldStatus::Up));
     }

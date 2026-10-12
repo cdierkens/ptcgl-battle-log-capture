@@ -40,7 +40,8 @@ _Avoid_: trigger, hook
 
 **Warm-up**:
 The startup period, up to about a minute after a fresh install or update, while the OS
-text recognizer loads. Results detection is off; the capture drawer says "Starting up…".
+text recognizer loads. Results detection and clipboard auto-save are off; the capture
+drawer says "Starting up…".
 _Avoid_: loading, boot
 
 **Capture drawer**:
