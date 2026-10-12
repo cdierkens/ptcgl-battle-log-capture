@@ -106,6 +106,7 @@ pub fn run() {
                 shared.clone(),
                 queue.clone(),
                 results_up(state_cell.clone()),
+                sync_changed(app.handle()),
             ));
             app.manage(sink.clone());
             spawn_sync_worker(app.handle(), queue, shared.clone(), secrets, results_up(state_cell.clone()));
@@ -123,6 +124,11 @@ pub fn run() {
                 show_main(_app);
             }
         });
+}
+
+fn sync_changed(app: &tauri::AppHandle) -> sync_status::SyncChanged {
+    let app = app.clone();
+    Box::new(move || commands::sync_changed(&app))
 }
 
 /// Losing the game window counts as leaving results: the overlay, and its Undo, go with it.
@@ -147,7 +153,7 @@ fn spawn_sync_worker(
             Ok(t) => t,
             Err(e) => return tracing::error!("sync disabled, HTTP client failed to start: {e}"),
         };
-        let on_change = Box::new(move || commands::sync_changed(&app));
+        let on_change = sync_changed(&app);
         let transport = Box::new(transport);
         sync_worker::Worker { queue, settings, secrets, transport, results_up, app_version, on_change }.run()
     });

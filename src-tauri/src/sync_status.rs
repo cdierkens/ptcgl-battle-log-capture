@@ -7,6 +7,9 @@ use crate::delivery_queue::{Attention, DeliveryQueue, DeliveryState, QueueError}
 /// Emitted when a delivery or a destination's attention changes; the payload is empty.
 pub const SYNC_CHANGED_EVENT: &str = "sync://changed";
 
+/// Emits `SYNC_CHANGED_EVENT`; a seam so the sink and worker don't need an app handle.
+pub type SyncChanged = Box<dyn Fn() + Send + Sync>;
+
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {

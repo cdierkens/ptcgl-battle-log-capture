@@ -127,8 +127,7 @@ pub fn open_token_page(config: String, app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn open_destination_token_page(id: String, app: AppHandle) -> Result<(), String> {
     let settings = settings::current(&app.state::<SharedSettings>());
-    let destination =
-        settings.destinations.iter().find(|d| d.id == id).ok_or(DestinationError::NotFound.to_string())?;
+    let destination = destinations::find(&settings.destinations, &id).map_err(|e| e.to_string())?;
     let url = destination.token_url.clone().ok_or("This destination has no token page.")?;
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
@@ -167,8 +166,7 @@ pub fn get_sync_status(queue: State<'_, SharedQueue>) -> Result<SyncStatus, Stri
 #[tauri::command]
 pub fn sync_log(file_name: String, destination_id: String, app: AppHandle) -> Result<(), String> {
     let settings = settings::current(&app.state::<SharedSettings>());
-    let destination =
-        settings.destinations.iter().find(|d| d.id == destination_id).ok_or(DestinationError::NotFound.to_string())?;
+    let destination = destinations::find(&settings.destinations, &destination_id).map_err(|e| e.to_string())?;
     if !destination.enabled {
         return Err(format!("{} is turned off in Settings.", destination.name));
     }

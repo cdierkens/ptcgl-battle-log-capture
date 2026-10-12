@@ -16,6 +16,7 @@ use crate::logs;
 use crate::ports::{DeliveryRequest, DeliveryTransport, SecretStore};
 use crate::settings::{self, Settings, SharedSettings};
 use crate::sink::ResultsUp;
+use crate::sync_status::SyncChanged;
 
 /// Also how soon a held delivery is released after the results screen goes away.
 const TICK: Duration = Duration::from_secs(1);
@@ -61,7 +62,7 @@ pub struct Worker {
     pub results_up: ResultsUp,
     pub app_version: String,
     /// Called after a tick that recorded a send's outcome.
-    pub on_change: Box<dyn Fn() + Send + Sync>,
+    pub on_change: SyncChanged,
 }
 
 impl Worker {

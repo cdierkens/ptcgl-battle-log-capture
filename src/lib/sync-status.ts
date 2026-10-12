@@ -1,4 +1,4 @@
-import type { Destination, SyncState, SyncStatus } from "./tauri";
+import type { DeliveryStatus, Destination, SyncState, SyncStatus } from "./tauri";
 
 export interface SyncAction {
   destinationId: string;
@@ -10,15 +10,18 @@ export function attentionReason(status: null | SyncStatus, destinationId: string
   return status?.attention.find((a) => a.destination === destinationId)?.reason ?? null;
 }
 
+/** A match's deliveries to destinations still configured, in destination order. */
+export function deliveriesFor(status: null | SyncStatus, fileName: string, destinations: Destination[]): DeliveryStatus[] {
+  const ids = new Set(destinations.map((d) => d.id));
+  return (status?.deliveries ?? []).filter((d) => d.log === fileName && ids.has(d.destination));
+}
+
 /**
  * One state for a match across its destinations: any failure wins, then anything still
  * pending. `null` when it was never queued for a destination still configured.
  */
 export function matchSyncState(status: null | SyncStatus, fileName: string, destinations: Destination[]): null | SyncState {
-  const ids = new Set(destinations.map((d) => d.id));
-  const states = new Set(
-    (status?.deliveries ?? []).filter((d) => d.log === fileName && ids.has(d.destination)).map((d) => d.state),
-  );
+  const states = new Set(deliveriesFor(status, fileName, destinations).map((d) => d.state));
   if (states.has("failed")) return "failed";
   if (states.has("pending")) return "pending";
   return states.has("synced") ? "synced" : null;
@@ -36,7 +39,7 @@ export function syncActions(status: null | SyncStatus, fileName: string, destina
   });
 }
 
-/** Whether any configured destination needs attention; drives the drawer handle badge. */
+/** Whether any configured destination needs attention; drives the attention badges. */
 export function syncNeedsAttention(status: null | SyncStatus, destinations: Destination[]): boolean {
   return destinations.some((d) => attentionReason(status, d.id) !== null);
 }

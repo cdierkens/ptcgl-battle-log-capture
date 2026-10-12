@@ -265,6 +265,10 @@ pub fn import(
     Ok(id)
 }
 
+pub fn find<'a>(destinations: &'a [Destination], id: &str) -> Result<&'a Destination, DestinationError> {
+    destinations.iter().find(|d| d.id == id).ok_or(DestinationError::NotFound)
+}
+
 /// A pasted replacement token: saved to the keychain, and the destination resumes.
 pub fn replace_token(
     destinations: &[Destination],
@@ -273,9 +277,7 @@ pub fn replace_token(
     id: &str,
     token: &str,
 ) -> Result<(), DestinationError> {
-    if !destinations.iter().any(|d| d.id == id) {
-        return Err(DestinationError::NotFound);
-    }
+    find(destinations, id)?;
     secrets.set(id, &validate_token(token)?)?;
     queue.clear_attention(id)?;
     Ok(())

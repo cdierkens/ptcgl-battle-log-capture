@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Destination, SyncStatus } from "./tauri";
 
-import { attentionReason, matchSyncState, syncActions, syncNeedsAttention } from "./sync-status";
+import { attentionReason, deliveriesFor, matchSyncState, syncActions, syncNeedsAttention } from "./sync-status";
 
 function destination(id: string, name: string, enabled = true): Destination {
   return { enabled, headers: {}, id, name, token_url: null, url: `https://${id}.example/api` };
@@ -72,5 +72,16 @@ describe("attention", () => {
     expect(syncNeedsAttention(status([], ["dojo"]), [dojo])).toBe(true);
     expect(syncNeedsAttention(status([], ["gone"]), [dojo])).toBe(false);
     expect(syncNeedsAttention(null, [dojo])).toBe(false);
+  });
+});
+
+describe("deliveriesFor", () => {
+  it("keeps only this match's deliveries to configured destinations", () => {
+    const s = status([
+      ["a.txt", "dojo", "synced"],
+      ["a.txt", "gone", "failed"],
+      ["b.txt", "dojo", "pending"],
+    ]);
+    expect(deliveriesFor(s, "a.txt", [dojo]).map((d) => d.destination)).toEqual(["dojo"]);
   });
 });

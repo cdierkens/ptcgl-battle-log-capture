@@ -30,7 +30,7 @@ import type { Destination, SyncState, SyncStatus } from "../lib/tauri";
 import type { Match, MatchesView } from "../lib/use-matches";
 
 import { matchRow, type MatchRow } from "../lib/match-row";
-import { matchSyncState, syncActions } from "../lib/sync-status";
+import { deliveriesFor, matchSyncState, syncActions } from "../lib/sync-status";
 import { deleteLog, revealLog, syncLog } from "../lib/tauri";
 import { useNow } from "../lib/use-now";
 
@@ -226,7 +226,7 @@ export function MatchList({ destinations, matches, playerName, sync }: MatchList
 function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchDetailProps) {
   const [showRaw, setShowRaw] = useState(false);
   const names = new Map(destinations.map((d) => [d.id, d.name]));
-  const deliveries = (sync?.deliveries ?? []).filter((d) => d.log === row.fileName && names.has(d.destination));
+  const deliveries = deliveriesFor(sync, row.fileName, destinations);
   const summary = match.analysis?.summary;
   return (
     <div className="space-y-3 p-4">
@@ -257,7 +257,7 @@ function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchD
         <ul aria-label="Sync" className="space-y-1 text-sm">
           {deliveries.map((delivery) => (
             <li className="flex items-start gap-2" key={delivery.destination}>
-              <SyncIcon state={delivery.state} />
+              <SyncIcon decorative state={delivery.state} />
               <span className="min-w-0">
                 {names.get(delivery.destination)}: {SYNC_LOOK[delivery.state].label.toLowerCase()}
                 {delivery.state !== "synced" && delivery.lastError !== null ? (
@@ -297,13 +297,9 @@ function RowContent({ row, sync }: { row: MatchRow; sync: null | SyncState }) {
   );
 }
 
-function SyncIcon({ state }: { state: SyncState }) {
+/** `decorative` when text beside it already says the state. */
+function SyncIcon({ decorative = false, state }: { decorative?: boolean; state: SyncState }) {
   const { icon: Icon, label } = SYNC_LOOK[state];
-  return (
-    <Icon
-      aria-label={label}
-      className={cn("size-4 shrink-0", state === "failed" ? "text-destructive" : "text-muted-foreground")}
-      role="img"
-    />
-  );
+  const className = cn("size-4 shrink-0", state === "failed" ? "text-destructive" : "text-muted-foreground");
+  return decorative ? <Icon aria-hidden className={className} /> : <Icon aria-label={label} className={className} role="img" />;
 }
