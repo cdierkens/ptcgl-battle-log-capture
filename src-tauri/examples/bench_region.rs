@@ -1,12 +1,12 @@
 // Compare: full-frame OCR vs OCR on just the region where the Battle Log tab
 // sits on the results screen (fixed-size window => fixed position).
 use std::time::Instant;
-use battle_log_capture_lib::platform::frame::XcapFrameCapturer;
-use battle_log_capture_lib::platform::window::XcapWindowProvider;
-use battle_log_capture_lib::ports::{FrameCapturer, WindowProvider, Frame, TextRecognizer};
-use battle_log_capture_lib::platform::ocr::VisionTextRecognizer;
-use battle_log_capture_lib::bmp::encode_bmp;
-use battle_log_capture_lib::buttons::battle_log_needles;
+use ptcgl_battle_log_capture_lib::platform::frame::XcapFrameCapturer;
+use ptcgl_battle_log_capture_lib::platform::window::XcapWindowProvider;
+use ptcgl_battle_log_capture_lib::ports::{FrameCapturer, WindowProvider, Frame, TextRecognizer};
+use ptcgl_battle_log_capture_lib::platform::ocr::VisionTextRecognizer;
+use ptcgl_battle_log_capture_lib::bmp::encode_bmp;
+use ptcgl_battle_log_capture_lib::buttons::battle_log_needles;
 
 fn crop(f: &Frame, x0: f32, y0: f32, x1: f32, y1: f32) -> Frame {
     let fx = |v: f32, max: u32| ((v * max as f32).round() as i32).clamp(0, max as i32) as u32;

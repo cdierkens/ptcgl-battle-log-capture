@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "identifier": "pro.pokedojo.capture",
   "build": {
-    "frontendDist": "../ui/dist"
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
   },
   "app": {
     "macOSPrivateApi": true,

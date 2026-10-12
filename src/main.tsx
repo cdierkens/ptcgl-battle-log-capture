@@ -27,7 +27,6 @@ if (label !== "main") {
 
 const rootEl = document.getElementById("root");
 if (rootEl === null) {
-  // eslint-disable-next-line no-restricted-syntax -- Tauri bootstrap fails fast if the mount node is absent
   throw new Error("#root element not found");
 }
 

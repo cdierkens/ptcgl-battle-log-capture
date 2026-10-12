@@ -1,10 +1,10 @@
 [package]
-name = "battle-log-capture"
+name = "ptcgl-battle-log-capture"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "battle_log_capture_lib"
+name = "ptcgl_battle_log_capture_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
