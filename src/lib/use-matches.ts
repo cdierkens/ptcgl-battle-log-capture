@@ -18,7 +18,7 @@ export interface MatchesView {
   refreshing: boolean;
 }
 
-/** Saved logs with their parsed summaries. Each file is read once; rows re-derive when the name changes. */
+/** Saved logs with their parsed summaries. Each saved log is read once; matches re-derive when the name changes. */
 export function useMatches(playerName: string): MatchesView {
   const [logs, setLogs] = useState<LogSummary[] | null>(null);
   const [raws, setRaws] = useState<ReadonlyMap<string, string>>(new Map());
