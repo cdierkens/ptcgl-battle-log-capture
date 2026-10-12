@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   actionForOutcome,
-  ALREADY_SAVED_ANYTIME_MESSAGE,
   ALREADY_SAVED_MESSAGE,
+  DUPLICATE_LOG_MESSAGE,
   initialPaste,
   isBlank,
   pasteReducer,
@@ -55,15 +55,10 @@ describe("actionForOutcome", () => {
   });
   it("rejects a re-pasted log while this match is unsaved", () => {
     expect(actionForOutcome({ kind: "alreadySaved" }, "Results")).toEqual({ message: ALREADY_SAVED_MESSAGE, type: "failed" });
-    expect(actionForOutcome({ kind: "alreadySaved" }, "Dismissed")).toEqual({ message: ALREADY_SAVED_MESSAGE, type: "failed" });
+    expect(actionForOutcome({ kind: "alreadySaved" }, "InMatch")).toEqual({ message: ALREADY_SAVED_MESSAGE, type: "failed" });
   });
-  it("calls a re-paste off the results screen a plain duplicate", () => {
-    for (const state of ["InMatch", "NoWindow", null]) {
-      expect(actionForOutcome({ kind: "alreadySaved" }, state)).toEqual({
-        message: ALREADY_SAVED_ANYTIME_MESSAGE,
-        type: "failed",
-      });
-    }
+  it("calls a re-paste of any log a duplicate", () => {
+    expect(actionForOutcome({ kind: "alreadySaved" }, null)).toEqual({ message: DUPLICATE_LOG_MESSAGE, type: "failed" });
   });
   it("accepts a re-paste once this match is saved", () => {
     expect(actionForOutcome({ kind: "alreadySaved" }, "Saved")).toEqual({ type: "saved" });

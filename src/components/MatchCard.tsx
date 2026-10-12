@@ -4,6 +4,7 @@ import { StatusAlert } from "@/components/StatusAlert";
 
 import type { OverlayStateView } from "../lib/use-overlay-state";
 
+import { matchNeedsPaste } from "../lib/capture-status";
 import { analyzeLog, fileNameOf, type MatchAnalysis } from "../lib/match-row";
 import { readLog } from "../lib/tauri";
 import { PasteForm } from "./PasteForm";
@@ -30,10 +31,10 @@ export function MatchCard({ clipboardOn, focusPaste, latestFileName, overlay, pl
 
   return (
     <section aria-label="This match" className="border-b border-border bg-muted p-4">
-      {overlay.state === "Saved" ? (
-        <SavedLine autosaved={overlay.autosaved} path={savedPath} playerName={playerName} />
+      {matchNeedsPaste(overlay.state) ? (
+        <PasteForm clipboardOn={clipboardOn} focusPaste={focusPaste} matchState={overlay.state} onSaved={setManualPath} />
       ) : (
-        <PasteForm clipboardOn={clipboardOn} focusPaste={focusPaste} onSaved={setManualPath} state={overlay.state} />
+        <SavedLine autosaved={overlay.autosaved} path={savedPath} playerName={playerName} />
       )}
     </section>
   );

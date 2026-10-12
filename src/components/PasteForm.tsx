@@ -10,25 +10,25 @@ import { submitBattleLog } from "../lib/tauri";
 
 const TEXTAREA_ID = "battle-log";
 
-/** Save a Battle Log by pasting it. On the results screen it names this match; elsewhere any log. */
+/** Save a Battle Log by pasting it: this match's (`matchState` is its overlay state), or any log (`null`). */
 export function PasteForm({
-  clipboardOn,
-  focusPaste,
+  clipboardOn = false,
+  focusPaste = false,
+  matchState,
   onSaved,
-  state,
 }: {
-  clipboardOn: boolean;
-  focusPaste: boolean;
+  clipboardOn?: boolean;
+  focusPaste?: boolean;
+  matchState: null | string;
   onSaved: (path: string) => void;
-  state: null | string;
 }) {
   const [model, dispatch] = useReducer(pasteReducer, initialPaste);
   const textarea = useRef<HTMLTextAreaElement>(null);
   // Classify outcomes against the state when the response arrives, not when Save was clicked.
-  const stateRef = useRef(state);
+  const stateRef = useRef(matchState);
   useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+    stateRef.current = matchState;
+  }, [matchState]);
 
   useEffect(() => {
     if (focusPaste) textarea.current?.focus();
@@ -55,7 +55,9 @@ export function PasteForm({
     >
       {clipboardOn ? <SavingLine /> : null}
       <Field data-invalid={model.error !== null || undefined}>
-        <FieldLabel htmlFor={TEXTAREA_ID}>In the game: Battle Log → Export</FieldLabel>
+        <FieldLabel htmlFor={TEXTAREA_ID}>
+          {matchState === null ? "Save a Battle Log" : "In the game: Battle Log → Export"}
+        </FieldLabel>
         <Textarea
           aria-invalid={model.error !== null}
           className="h-24 font-mono text-xs"
