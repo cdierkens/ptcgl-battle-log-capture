@@ -1,7 +1,7 @@
 //! Delivery worker: releases held deliveries once the results screen is gone, then sends
 //! whatever is due as an envelope POST.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -15,25 +15,26 @@ use crate::destinations::Destination;
 use crate::logs;
 use crate::ports::{DeliveryRequest, DeliveryTransport, SecretStore};
 use crate::settings::{self, Settings, SharedSettings};
+use crate::sink::ResultsUp;
 
 /// Also how soon a held delivery is released after the results screen goes away.
-pub const TICK: Duration = Duration::from_secs(1);
+const TICK: Duration = Duration::from_secs(1);
 const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Envelope<'a> {
-    pub schema_version: u32,
-    pub log: &'a str,
+struct Envelope<'a> {
+    schema_version: u32,
+    log: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub player_name: Option<&'a str>,
-    pub saved_at: String,
-    pub app_version: &'a str,
+    player_name: Option<&'a str>,
+    saved_at: String,
+    app_version: &'a str,
 }
 
 /// What a send means for its delivery.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outcome {
+enum Outcome {
     Synced,
     Retry(String),
     /// The site rejected the token; pause the destination.
@@ -41,7 +42,7 @@ pub enum Outcome {
     Failed(String),
 }
 
-pub fn classify(response: Result<u16, String>) -> Outcome {
+fn classify(response: Result<u16, String>) -> Outcome {
     match response {
         Err(e) => Outcome::Retry(e),
         Ok(200..=299) => Outcome::Synced,
@@ -57,7 +58,7 @@ pub struct Worker {
     pub secrets: Arc<dyn SecretStore>,
     pub transport: Box<dyn DeliveryTransport>,
     /// Held deliveries wait while this is true (Undo is still possible).
-    pub results_up: Box<dyn Fn() -> bool + Send>,
+    pub results_up: ResultsUp,
     pub app_version: String,
 }
 
@@ -70,36 +71,36 @@ impl Worker {
     }
 
     pub fn tick(&self, now: i64) {
-        if !(self.results_up)() {
-            if let Err(e) = delivery_queue::lock(&self.queue).release_all_held() {
-                warn!("sync: couldn't release held deliveries: {e}");
+        let due = {
+            // Check under the queue lock so a save can't be held between the check and the release.
+            let queue = delivery_queue::lock(&self.queue);
+            if !(self.results_up)() {
+                log_err(queue.release_all_held());
             }
-        }
-        let due = match delivery_queue::lock(&self.queue).due(now) {
-            Ok(due) => due,
-            Err(e) => {
-                warn!("sync: couldn't read the queue: {e}");
-                return;
+            match queue.due(now) {
+                Ok(due) => due,
+                Err(e) => return warn!("sync: couldn't read the queue: {e}"),
             }
         };
-        // Read after `due`: every due row was queued for a destination already in these settings,
-        // so a missing destination really was removed.
-        let settings = settings::current(&self.settings);
+        let mut tokens = HashMap::new();
         let mut paused = HashSet::new();
         for delivery in due {
             if paused.contains(&delivery.destination) {
                 continue;
             }
-            if let Some(Outcome::NeedsAttention(_)) = self.deliver(&settings, &delivery, now) {
+            if let Some(Outcome::NeedsAttention(_)) = self.deliver(&delivery, &mut tokens, now) {
                 paused.insert(delivery.destination);
             }
         }
     }
 
     /// Sends one delivery and records the result. `None` when nothing was sent.
-    fn deliver(&self, settings: &Settings, delivery: &Delivery, now: i64) -> Option<Outcome> {
+    /// Settings are read per delivery, since a slow tick can outlive a change to them.
+    fn deliver(&self, delivery: &Delivery, tokens: &mut Tokens, now: i64) -> Option<Outcome> {
         let queue = || delivery_queue::lock(&self.queue);
         let (log, dest_id) = (delivery.log.as_str(), delivery.destination.as_str());
+        // Every due row was queued for a destination already in settings, so a missing one was removed.
+        let settings = settings::current(&self.settings);
         let Some(destination) = settings.destinations.iter().find(|d| d.id == dest_id) else {
             log_err(queue().remove_destination(dest_id));
             return None;
@@ -107,10 +108,12 @@ impl Worker {
         if !destination.enabled {
             return None;
         }
-        let outcome = match self.secrets.get(dest_id) {
-            Ok(Some(token)) => self.send(settings, destination, &token, log)?,
+        let token =
+            tokens.entry(dest_id.to_string()).or_insert_with(|| self.secrets.get(dest_id).map_err(|e| e.to_string()));
+        let outcome = match token {
+            Ok(Some(token)) => self.send(&settings, destination, token, log)?,
             Ok(None) => Outcome::NeedsAttention("No token is saved for this destination.".into()),
-            Err(e) => Outcome::Retry(e.to_string()),
+            Err(e) => Outcome::Retry(e.clone()),
         };
         let q = queue();
         log_err(match &outcome {
@@ -122,7 +125,7 @@ impl Worker {
         Some(outcome)
     }
 
-    /// `None` when the log file is gone: its deliveries are dropped, nothing is sent.
+    /// `None` when the saved log was deleted: its deliveries are dropped, nothing is sent.
     fn send(&self, settings: &Settings, destination: &Destination, token: &str, log: &str) -> Option<Outcome> {
         let dir = Path::new(&settings.output_dir);
         let path = dir.join(log);
@@ -150,19 +153,22 @@ impl Worker {
     }
 }
 
+/// Each destination's token, read from the keychain at most once per tick.
+type Tokens = HashMap<String, Result<Option<String>, String>>;
+
 fn log_err<E: std::fmt::Display>(result: Result<(), E>) {
     if let Err(e) = result {
         warn!("sync: {e}");
     }
 }
 
-/// The log file's modified time, RFC 3339 in UTC.
+/// When the saved log was last written, RFC 3339 in UTC.
 fn saved_at(path: &Path) -> String {
     let time = std::fs::metadata(path).and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::now());
     DateTime::<Utc>::from(time).to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-pub fn now_ms() -> i64 {
+fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or_default()
 }
 
@@ -393,5 +399,61 @@ mod tests {
         rig.worker.tick(0);
         assert_eq!(rig.sent(), 0);
         assert_eq!(rig.state(), None);
+    }
+
+    fn add_second_log(rig: &Rig) {
+        fs::write(rig.dir.join("two.txt"), "Setup\n").unwrap();
+        let queue = delivery_queue::lock(&rig.worker.queue);
+        queue.enqueue(LOG, DEST, Release::Now).unwrap();
+        queue.enqueue("two.txt", DEST, Release::Now).unwrap();
+    }
+
+    struct CountingSecrets(MemSecretStore, Arc<std::sync::atomic::AtomicUsize>);
+
+    impl SecretStore for CountingSecrets {
+        fn get(&self, account: &str) -> Result<Option<String>, crate::ports::SecretError> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            self.0.get(account)
+        }
+        fn set(&self, account: &str, secret: &str) -> Result<(), crate::ports::SecretError> {
+            self.0.set(account, secret)
+        }
+        fn delete(&self, account: &str) -> Result<(), crate::ports::SecretError> {
+            self.0.delete(account)
+        }
+    }
+
+    #[test]
+    fn reads_each_token_once_per_tick() {
+        let mut rig = Rig::new("token-once");
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let secrets = MemSecretStore::default();
+        secrets.set(DEST, "tok").unwrap();
+        rig.worker.secrets = Arc::new(CountingSecrets(secrets, Arc::clone(&reads)));
+        add_second_log(&rig);
+        rig.worker.tick(0);
+        assert_eq!(rig.sent(), 2);
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+    }
+
+    struct DisablingTransport(SharedSettings, Arc<FakeTransport>);
+
+    impl DeliveryTransport for DisablingTransport {
+        fn post(&self, r: &DeliveryRequest<'_>) -> Result<u16, String> {
+            let mut s = settings::current(&self.0);
+            s.destinations[0].enabled = false;
+            settings::replace(&self.0, s);
+            self.1.post(r)
+        }
+    }
+
+    #[test]
+    fn a_destination_disabled_mid_tick_gets_no_more_sends() {
+        let mut rig = Rig::new("disable-mid-tick");
+        rig.worker.transport =
+            Box::new(DisablingTransport(Arc::clone(&rig.worker.settings), Arc::clone(&rig.transport)));
+        add_second_log(&rig);
+        rig.worker.tick(0);
+        assert_eq!(rig.sent(), 1);
     }
 }

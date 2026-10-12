@@ -119,10 +119,8 @@ pub fn run() {
         });
 }
 
-/// Whether the results screen is up, so Undo is still possible.
-fn results_up(
-    state: std::sync::Arc<std::sync::Mutex<overlay_state::OverlayState>>,
-) -> Box<dyn Fn() -> bool + Send + Sync> {
+/// Losing the game window counts as leaving results: the overlay, and its Undo, go with it.
+fn results_up(state: std::sync::Arc<std::sync::Mutex<overlay_state::OverlayState>>) -> sink::ResultsUp {
     Box::new(move || {
         matches!(*state.lock().unwrap_or_else(|p| p.into_inner()), overlay_state::OverlayState::Results { .. })
     })
@@ -134,7 +132,7 @@ fn spawn_sync_worker(
     queue: delivery_queue::SharedQueue,
     settings: settings::SharedSettings,
     secrets: std::sync::Arc<dyn ports::SecretStore>,
-    results_up: Box<dyn Fn() -> bool + Send + Sync>,
+    results_up: sink::ResultsUp,
 ) {
     let app_version = app.package_info().version.to_string();
     std::thread::spawn(move || {

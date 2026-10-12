@@ -73,22 +73,20 @@ impl<S: LogStore + Send + Sync> LogSink for StoreLogSink<S> {
     }
 }
 
+/// Whether the results screen is up, so Undo is still possible.
+pub type ResultsUp = Box<dyn Fn() -> bool + Send + Sync>;
+
 /// Queues a delivery to each enabled destination after every new save. A save made while the
 /// results screen is up is held until it goes away, so Undo never races the network.
 pub struct SyncingLogSink<S: LogSink> {
     inner: S,
     settings: SharedSettings,
     queue: SharedQueue,
-    results_up: Box<dyn Fn() -> bool + Send + Sync>,
+    results_up: ResultsUp,
 }
 
 impl<S: LogSink> SyncingLogSink<S> {
-    pub fn new(
-        inner: S,
-        settings: SharedSettings,
-        queue: SharedQueue,
-        results_up: Box<dyn Fn() -> bool + Send + Sync>,
-    ) -> Self {
+    pub fn new(inner: S, settings: SharedSettings, queue: SharedQueue, results_up: ResultsUp) -> Self {
         Self { inner, settings, queue, results_up }
     }
 
@@ -98,8 +96,9 @@ impl<S: LogSink> SyncingLogSink<S> {
             Ok(name) => name,
             Err(e) => return tracing::warn!("sync: {e}"),
         };
-        let release = if (self.results_up)() { Release::AfterResults } else { Release::Now };
+        // Check under the queue lock so the worker can't release between the check and the enqueue.
         let queue = delivery_queue::lock(&self.queue);
+        let release = if (self.results_up)() { Release::AfterResults } else { Release::Now };
         for destination in settings::current(&self.settings).destinations.iter().filter(|d| d.enabled) {
             if let Err(e) = queue.enqueue(&file_name, &destination.id, release) {
                 tracing::warn!("sync: couldn't queue {file_name} for {}: {e}", destination.name);

@@ -7,7 +7,8 @@ status: accepted
 The capture engine depends only on the traits in `src-tauri/src/ports.rs`:
 `WindowProvider`, `FrameCapturer`, `TextRecognizer`, `ScreenCaptureAccess`, `LogStore`,
 `OverlayPresenter`, and `SecretStore` (the OS keychain, for sync tokens), plus the
-clipboard and focus probes. Each OS supplies one
+clipboard and focus probes. Sync sends through `DeliveryTransport`, a port too, so the
+worker is tested without a network. Each OS supplies one
 implementation per port under `platform/`, selected with `cfg(target_os)`, in the same
 crate. That shape already exists; we are not adding a plugin system or a separate crate
 per platform. Ports are the seam that keeps the engine unit-testable without a live game,

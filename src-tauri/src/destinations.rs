@@ -117,9 +117,9 @@ fn parse_config_with(text: &str, allow_loopback_http: bool) -> Result<Destinatio
     if raw.auth.kind != "bearer" {
         return Err(ConfigError::Invalid(format!("auth type \"{}\" isn't supported", raw.auth.kind)));
     }
-    let url = https_url(&raw.url, "url", allow_loopback_http)?;
+    let url = destination_url(&raw.url, "url", allow_loopback_http)?;
     let token_url =
-        raw.auth.token_url.as_deref().map(|u| https_url(u, "auth.tokenUrl", allow_loopback_http)).transpose()?;
+        raw.auth.token_url.as_deref().map(|u| destination_url(u, "auth.tokenUrl", allow_loopback_http)).transpose()?;
     let token = raw.auth.token.as_deref().map(validate_token).transpose()?;
     if token.is_none() && token_url.is_none() {
         return Err(ConfigError::Invalid("auth needs a token or a tokenUrl".into()));
@@ -134,7 +134,7 @@ fn parse_config_with(text: &str, allow_loopback_http: bool) -> Result<Destinatio
     Ok(DestinationConfig { name, url, headers: raw.headers, token, token_url })
 }
 
-fn https_url(text: &str, field: &str, allow_loopback_http: bool) -> Result<String, ConfigError> {
+fn destination_url(text: &str, field: &str, allow_loopback_http: bool) -> Result<String, ConfigError> {
     let url = Url::parse(text.trim()).map_err(|_| ConfigError::Invalid(format!("{field} isn't a URL")))?;
     let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
     let scheme_ok = url.scheme() == "https" || (allow_loopback_http && loopback && url.scheme() == "http");
