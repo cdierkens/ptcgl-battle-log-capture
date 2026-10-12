@@ -75,6 +75,9 @@ pub struct EngineCtx {
     game_focused: bool,
     /// Text recognition has warmed up; until then polls skip OCR.
     recognizer_ready: bool,
+    /// Keep the clipboard baseline taken during warm-up until the first results screen,
+    /// so a log copied while results detection was off still counts.
+    warm_up_baseline: bool,
     overlay_error: Option<String>,
     rendered_drawer: Option<WindowInfo>,
     rendered_shield: Option<(WindowInfo, ScreenRect)>,
@@ -96,6 +99,7 @@ impl EngineCtx {
             last_autosave: None,
             game_focused: false,
             recognizer_ready: false,
+            warm_up_baseline: false,
             overlay_error: None,
             rendered_drawer: None,
             rendered_shield: None,
@@ -140,11 +144,23 @@ impl EngineCtx {
         if shield != Some(ShieldStatus::Saved) {
             self.last_autosave = None;
         }
-        if !self.autosave || self.autosave_error.is_some() || shield.is_none() {
+        if self.state == OverlayState::WarmingUp {
+            self.warm_up_baseline = true;
+        } else if shield.is_some() || self.state != OverlayState::InMatch {
+            self.warm_up_baseline = false;
+        }
+        let watching = shield.is_some() || self.warm_up_baseline;
+        if !self.autosave || self.autosave_error.is_some() || !watching {
             self.clipboard.disarm();
             return None;
         }
         let count = clipboard.change_count();
+        if shield.is_none() {
+            if !self.clipboard.is_armed() || !self.game_focused {
+                self.clipboard.arm(count);
+            }
+            return None;
+        }
         // Baseline on entering results; re-baseline while unfocused so other apps' copies are never read.
         if !self.clipboard.is_armed() || !self.game_focused {
             self.clipboard.arm(count);
@@ -202,7 +218,8 @@ impl EngineCtx {
             self.render(None, presenter);
             return false;
         };
-        self.apply(if self.recognizer_ready { OverlayEvent::WindowFound } else { OverlayEvent::WindowFoundWarmingUp });
+        let ready = self.recognizer_ready;
+        self.apply(if ready { OverlayEvent::WindowFound } else { OverlayEvent::WindowFoundWarmingUp });
         // Detection keeps running while another app is active; only rendering is gated.
         let focused = self.focus.observe(focus.active_pid(), window.pid, self.own_pid);
         // Hide instead of chasing a dragged or resized window; show on the first stable poll.
@@ -212,11 +229,8 @@ impl EngineCtx {
         let visible = focused && settled;
         self.game_focused = focused;
         let shown = visible.then_some(&window);
-        if !self.recognizer_ready {
-            self.render(shown, presenter);
-            return true;
-        }
-        if let Some(frame) = frames.capture(&window) {
+        let frame = if ready { frames.capture(&window) } else { None };
+        if let Some(frame) = frame {
             self.polls = self.polls.wrapping_add(1);
             let sweep = self.polls % SWEEP_EVERY == 0;
             let tab_visible = probe.tab_visible(&frame, sweep);
@@ -299,7 +313,8 @@ pub fn run(
     sink: Arc<dyn LogSink>,
 ) {
     let game = XcapGame::new(crate::title::GAME_TITLE_HINT);
-    let probe = OcrResultsProbe::new(VisionTextRecognizer);
+    let recognizer = VisionTextRecognizer;
+    let probe = OcrResultsProbe::new(recognizer);
     let focus = WorkspaceFocusProbe;
     let clipboard = SystemClipboard;
     let screen_access = ScreenRecordingAccess;
@@ -310,9 +325,13 @@ pub fn run(
         let ready = Arc::clone(&recognizer_ready);
         std::thread::spawn(move || {
             let started = Instant::now();
-            VisionTextRecognizer.warm_up();
-            info!(secs = started.elapsed().as_secs_f64(), "Text recognition ready");
+            // Detection must never stay off, even if the warm-up panics.
+            let warmed = std::panic::catch_unwind(|| recognizer.warm_up());
             ready.store(true, Ordering::Release);
+            match warmed {
+                Ok(()) => info!(secs = started.elapsed().as_secs_f64(), "Text recognition ready"),
+                Err(_) => warn!("text recognition warm-up panicked; the first results check may be slow"),
+            }
         });
     }
     let mut published: Option<(OverlayState, Option<String>)> = None;
@@ -419,7 +438,7 @@ fn status_message(state: OverlayState) -> &'static str {
     match state {
         OverlayState::PermissionRequired => "Screen Recording permission required",
         OverlayState::NoWindow => "Waiting for the game window",
-        OverlayState::WarmingUp => "Starting text recognition",
+        OverlayState::WarmingUp => "Starting up…",
         OverlayState::InMatch => "Watching for the results screen",
         OverlayState::Results { shield: ShieldStatus::Up, .. } => "Results screen: save your Battle Log",
         OverlayState::Results { shield: ShieldStatus::Saved, .. } => "Battle Log saved",
@@ -629,6 +648,21 @@ mod tests {
             OverlayState::Results { shield, .. } => Some(shield),
             _ => None,
         }
+    }
+
+    #[test]
+    fn a_log_copied_during_warm_up_is_saved_on_the_results_screen() {
+        let (clip, sink, presenter) = (FakeClipboard::holding_a_log(), sink(), RecordingPresenter::default());
+        let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
+        ctx.set_autosave(true);
+        poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
+        assert_eq!(ctx.autosave(&clip, &sink), None, "the log already copied is the baseline");
+        clip.copy(COPIED_LOG);
+        assert_eq!(ctx.autosave(&clip, &sink), None, "no results screen yet");
+        ctx.set_recognizer_ready(true);
+        poll(&mut ctx, &results_screen(), &active(GAME_PID), &presenter);
+        assert_eq!(ctx.autosave(&clip, &sink), Some("/logs/1.txt".to_string()));
+        assert_eq!(shield(&ctx), Some(ShieldStatus::Saved));
     }
 
     #[test]
