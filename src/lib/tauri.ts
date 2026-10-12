@@ -7,6 +7,25 @@ export interface CaptureStatusEvent {
   ts: number;
 }
 
+export interface Destination {
+  enabled: boolean;
+  headers: Record<string, string>;
+  id: string;
+  name: string;
+  token_url: null | string;
+  url: string;
+}
+
+/** The confirmation step for a pasted destination config. */
+export interface ImportPreview {
+  name: string;
+  /** Name of the destination this updates in place. */
+  replaces: null | string;
+  token: TokenPrompt;
+  tokenUrl: null | string;
+  url: string;
+}
+
 export interface LogSummary {
   createdMs: number;
   fileName: string;
@@ -21,6 +40,8 @@ export interface OverlayStateEvent {
 
 export interface Settings {
   clipboard_autosave: boolean;
+  /** Read-only here: `save_settings` keeps the saved list; use the destination commands. */
+  destinations: Destination[];
   output_dir: string;
   player_name: string;
   prompt_after_match: boolean;
@@ -28,11 +49,14 @@ export interface Settings {
 
 export type SubmitOutcome = { kind: "alreadySaved" } | { kind: "saved"; path: string };
 
+/** `embedded`: the config has a token. `optional`: blank keeps the current token. */
+export type TokenPrompt = "embedded" | "optional" | "required";
+
 export const OVERLAY_STATE_EVENT = "overlay://state";
 export const SETTINGS_CHANGED_EVENT = "settings://changed";
 
 export const getSettings = () => invoke<Settings>("get_settings");
-export const saveSettings = (s: Settings) => invoke<void>("save_settings", { s });
+export const saveSettings = (s: Settings) => invoke<Settings>("save_settings", { s });
 export const listLogs = () => invoke<LogSummary[]>("list_logs");
 export const readLog = (fileName: string) => invoke<string>("read_log", { fileName });
 
@@ -53,4 +77,11 @@ export const setDrawerOpen = (open: boolean) => invoke<void>("set_drawer_open", 
 export const openLogsFolder = () => invoke<void>("open_logs_folder");
 export const openScreenRecordingSettings = () => invoke<void>("open_screen_recording_settings");
 export const relaunchApp = () => invoke<void>("relaunch_app");
+export const previewDestination = (config: string) => invoke<ImportPreview>("preview_destination", { config });
+export const importDestination = (config: string, token: null | string) =>
+  invoke<void>("import_destination", { config, token });
+export const setDestinationEnabled = (id: string, enabled: boolean) =>
+  invoke<void>("set_destination_enabled", { enabled, id });
+export const removeDestination = (id: string) => invoke<void>("remove_destination", { id });
+export const openTokenPage = (config: string) => invoke<void>("open_token_page", { config });
 export const CAPTURE_STATUS_EVENT = "capture-status";

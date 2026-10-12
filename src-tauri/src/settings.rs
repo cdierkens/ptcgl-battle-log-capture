@@ -4,6 +4,8 @@ use std::sync::{Arc, RwLock};
 
 use serde::{Deserialize, Serialize};
 
+use crate::destinations::Destination;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
@@ -17,6 +19,9 @@ pub struct Settings {
     /// Save a battle log copied to the clipboard while the results screen is up.
     #[serde(default)]
     pub clipboard_autosave: bool,
+    /// Changed only through the destination commands; `save_settings` keeps the current list.
+    #[serde(default)]
+    pub destinations: Vec<Destination>,
 }
 
 impl Settings {
@@ -26,6 +31,7 @@ impl Settings {
             output_dir: log_folder.to_string_lossy().into_owned(),
             prompt_after_match: true,
             clipboard_autosave: false,
+            destinations: Vec::new(),
         }
     }
 }

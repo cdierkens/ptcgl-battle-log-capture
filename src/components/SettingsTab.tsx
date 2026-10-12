@@ -11,6 +11,7 @@ import type { SettingsView } from "../lib/use-settings";
 
 import { openLogsFolder, pickOutputDir } from "../lib/tauri";
 import { ClipboardSetting } from "./ClipboardSetting";
+import { DestinationsSetting } from "./DestinationsSetting";
 
 export function SettingsTab({ settings }: { settings: SettingsView }) {
   const current = settings.settings;
@@ -105,6 +106,8 @@ export function SettingsTab({ settings }: { settings: SettingsView }) {
       </Field>
 
       <ClipboardSetting settings={settings} />
+
+      <DestinationsSetting settings={settings} />
     </div>
   );
 }

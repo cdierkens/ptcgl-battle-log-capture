@@ -7,12 +7,14 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::{ClipboardAccess, ClipboardProbe};
+use crate::delivery_queue::{self, DeliveryQueue, SharedQueue};
+use crate::destinations::{self, Destination, DestinationError, ImportPreview};
 use crate::diagnostics::Diagnostics;
 use crate::logs::{self, LogSummary};
 use crate::overlay_state::{OverlayEvent, OverlayState};
 use crate::platform::clipboard::SystemClipboard;
 use crate::platform::permission::ScreenRecordingAccess;
-use crate::ports::{OverlayPresenter, ScreenCaptureAccess};
+use crate::ports::{OverlayPresenter, ScreenCaptureAccess, SecretStore};
 use crate::settings::{self, Settings, SettingsPaths, SharedSettings};
 use crate::sink::{LogSink, SubmitError, SubmitOutcome};
 
@@ -29,9 +31,22 @@ pub fn get_settings(settings: State<'_, SharedSettings>) -> Settings {
     settings::current(&settings)
 }
 
+/// Held across every settings read-modify-write so concurrent commands can't drop each other's changes.
+static SETTINGS_WRITE: Mutex<()> = Mutex::new(());
+
+fn settings_write() -> std::sync::MutexGuard<'static, ()> {
+    SETTINGS_WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Destinations are left as they are; only the destination commands change them.
+/// Returns what was saved.
 #[tauri::command]
-pub fn save_settings(s: Settings, app: AppHandle) -> Result<(), String> {
-    apply_settings(&app, s)
+pub fn save_settings(s: Settings, app: AppHandle) -> Result<Settings, String> {
+    let _write = settings_write();
+    let destinations = settings::current(&app.state::<SharedSettings>()).destinations;
+    let next = Settings { destinations, ..s };
+    apply_settings(&app, next.clone())?;
+    Ok(next)
 }
 
 /// The one write path for settings (Settings tab, setup flow): persist, share, broadcast.
@@ -42,6 +57,68 @@ pub fn apply_settings(app: &AppHandle, next: Settings) -> Result<(), String> {
         tracing::warn!("failed to emit settings changed: {e}");
     }
     Ok(())
+}
+
+/// Runs `change` on the destination list with the keychain and queue, then saves settings.
+fn change_destinations<T>(
+    app: &AppHandle,
+    change: impl FnOnce(&mut Vec<Destination>, &dyn SecretStore, &DeliveryQueue) -> Result<T, DestinationError>,
+) -> Result<T, String> {
+    let _write = settings_write();
+    let mut next = settings::current(&app.state::<SharedSettings>());
+    let secrets = app.state::<Arc<dyn SecretStore>>();
+    let shared_queue = app.state::<SharedQueue>();
+    let out = {
+        let queue = delivery_queue::lock(&shared_queue);
+        change(&mut next.destinations, secrets.inner().as_ref(), &queue).map_err(|e| e.to_string())?
+    };
+    apply_settings(app, next)?;
+    Ok(out)
+}
+
+/// Validates a pasted destination config for the confirmation step. Saves nothing.
+#[tauri::command]
+pub fn preview_destination(
+    config: String,
+    settings: State<'_, SharedSettings>,
+    secrets: State<'_, Arc<dyn SecretStore>>,
+) -> Result<ImportPreview, String> {
+    let parsed = destinations::parse_config(&config).map_err(|e| e.to_string())?;
+    destinations::preview(&parsed, &settings::current(&settings).destinations, secrets.inner().as_ref())
+        .map_err(|e| e.to_string())
+}
+
+/// Saves a confirmed config; a URL already configured is updated in place.
+#[tauri::command]
+pub fn import_destination(config: String, token: Option<String>, app: AppHandle) -> Result<(), String> {
+    let parsed = destinations::parse_config(&config).map_err(|e| e.to_string())?;
+    change_destinations(&app, |list, secrets, queue| {
+        destinations::import(list, secrets, queue, parsed, token.as_deref()).map(|_| ())
+    })
+}
+
+#[tauri::command]
+pub fn set_destination_enabled(id: String, enabled: bool, app: AppHandle) -> Result<(), String> {
+    change_destinations(&app, |list, _, _| destinations::set_enabled(list, &id, enabled))
+}
+
+#[tauri::command]
+pub fn remove_destination(
+    id: String,
+    app: AppHandle,
+    queue: State<'_, SharedQueue>,
+    secrets: State<'_, Arc<dyn SecretStore>>,
+) -> Result<(), String> {
+    change_destinations(&app, |list, _, _| destinations::remove(list, &id))?;
+    destinations::forget(secrets.inner().as_ref(), &delivery_queue::lock(&queue), &id).map_err(|e| e.to_string())
+}
+
+/// Opens the token page named by a pasted config; the webview can't pick an arbitrary URL.
+#[tauri::command]
+pub fn open_token_page(config: String, app: AppHandle) -> Result<(), String> {
+    let parsed = destinations::parse_config(&config).map_err(|e| e.to_string())?;
+    let url = parsed.token_url.ok_or("This config has no token page.")?;
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 fn output_dir(settings: &SharedSettings) -> PathBuf {
