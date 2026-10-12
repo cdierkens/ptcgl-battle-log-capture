@@ -88,17 +88,26 @@ A complete set of colour and shape tokens that restyles the whole app without ch
 its behaviour.
 _Avoid_: skin, palette, brand
 
-### Upload (planned)
+### Sync (planned)
+
+**Sync**:
+Sending saved logs to the player's destinations. One way only: nothing comes back from a
+destination into the app.
+_Avoid_: upload, push, backup
 
 **Destination**:
-A user-configured place that saved logs are sent to: a request template, an auth method,
-and a body mapping.
+A site account that saved logs are synced to, set up from a destination config.
 _Avoid_: integration, webhook, target, endpoint (on its own)
 
-**Body mapping**:
-The rule that turns a saved log, and its analysis, into a destination's request body.
-_Avoid_: transformer, template (ambiguous with parser templates)
+**Destination config**:
+The settings a site publishes for the player to paste into the app once: where to send
+logs and how to authenticate.
+_Avoid_: integration file, connection string
+
+**Envelope**:
+The one request body every destination receives for a saved log.
+_Avoid_: payload, body mapping
 
 **Delivery**:
-One attempt, and its retries, to send one saved log to one destination.
-_Avoid_: upload (as a noun), sync, push
+Syncing one saved log to one destination, including its retries.
+_Avoid_: upload (as a noun), push

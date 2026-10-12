@@ -16,6 +16,7 @@ only for now (Windows compiles in CI with stubbed capture/OCR).
 - `pnpm run verify`: typecheck, lint, test, build. Run it before committing.
 - In `src-tauri/`: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. Cargo needs `dist/` from `pnpm build`.
 - Dependencies are pinned exactly. pnpm 11 rejects releases younger than a day.
+- Run the `code-review` skill against the base branch after each layer (each issue/PR in a stack), and resolve its findings before opening or merging that PR.
 
 ## Conventions
 
