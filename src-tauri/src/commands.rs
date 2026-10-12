@@ -183,9 +183,18 @@ pub fn dismiss_shield(events: State<'_, Sender<OverlayEvent>>) {
     let _ = events.send(OverlayEvent::Dismissed);
 }
 
-fn trash_and_forget(settings: &SharedSettings, sink: &dyn LogSink, file_name: &str) -> Result<(), String> {
+/// Also drops held deliveries: a log trashed before it could be undone is never sent.
+fn trash_and_forget(
+    settings: &SharedSettings,
+    sink: &dyn LogSink,
+    queue: &SharedQueue,
+    file_name: &str,
+) -> Result<(), String> {
     let text = logs::trash_log(&output_dir(settings), file_name)?;
     sink.forget(&text);
+    if let Err(e) = delivery_queue::lock(queue).drop_held(file_name) {
+        tracing::warn!("sync: couldn't drop held deliveries for {file_name}: {e}");
+    }
     Ok(())
 }
 
@@ -194,8 +203,9 @@ pub fn delete_log(
     file_name: String,
     settings: State<'_, SharedSettings>,
     sink: State<'_, Arc<dyn LogSink>>,
+    queue: State<'_, SharedQueue>,
 ) -> Result<(), String> {
-    trash_and_forget(settings.inner(), sink.inner().as_ref(), &file_name)
+    trash_and_forget(settings.inner(), sink.inner().as_ref(), queue.inner(), &file_name)
 }
 
 /// Undo the latest save: trash it, forget it, and put the shield back up.
@@ -204,10 +214,11 @@ pub fn undo_last_save(
     path: String,
     settings: State<'_, SharedSettings>,
     sink: State<'_, Arc<dyn LogSink>>,
+    queue: State<'_, SharedQueue>,
     events: State<'_, Sender<OverlayEvent>>,
 ) -> Result<(), String> {
     let file_name = logs::file_name_of(&path)?;
-    trash_and_forget(settings.inner(), sink.inner().as_ref(), &file_name)?;
+    trash_and_forget(settings.inner(), sink.inner().as_ref(), queue.inner(), &file_name)?;
     let _ = events.send(OverlayEvent::SaveUndone);
     Ok(())
 }
