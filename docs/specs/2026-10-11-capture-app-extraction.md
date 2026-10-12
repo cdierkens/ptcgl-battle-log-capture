@@ -135,15 +135,24 @@ GitHub Actions on PRs and `main`. Actions are pinned to commit SHAs, and Dependa
 
 Release builds and signing belong to the release spec, not this one.
 
-### 7. The BMP → Vision hang
+### 7. The BMP → Vision hang — **resolved 2026-10-11**
 
-D13 drops the WIP, so the extraction runs the BMP path (#487). Before step 9:
+D13 drops the WIP, so the extraction keeps the BMP path (#487).
 
-- Run the acceptance capture on the author's laptop (the machine that hit the hang), from a fresh clone.
-- If it hangs, fix the root cause in its own PR. Prefer giving Vision a `CGImage` built from the RGBA buffer (`VNImageRequestHandler initWithCGImage:`), which needs no encoding at all. Don't add the `image` crate to work around it.
-- Either way, open an issue recording the finding.
+Probed on the author's laptop with the repo's `VisionTextRecognizer` and no game running:
 
-Then discard the WIP in `pokedojo.pro`. Step 9 deletes that directory anyway.
+| Binary | Encoding | First OCR call | Later calls |
+|---|---|---|---|
+| fresh build | BMP | > 60 s (killed) | — |
+| same binary, 2nd run | BMP | 34.5 s | 0.1–1.1 s |
+| copy of that binary at a new path | BMP | 78 s | 0.08–0.6 s |
+| fresh build with the WIP's PNG path | PNG | 63 s | 0.1–3.5 s |
+
+The "hang" is Vision's cold start: its first request in a **new binary** takes about 35–80 s, regardless of encoding. Every rebuild is a new binary, so during development it looked like BMP was hanging. The WIP's diagnosis was wrong, and porting it would have fixed nothing.
+
+It still matters to users: after every install or update, the engine thread blocks on that first call and results detection is blind for about a minute. That's tracked in #2 (warm Vision up off the engine thread at launch). It's a behaviour change, so it's not part of the extraction.
+
+The WIP in `pokedojo.pro` can be discarded. Step 9 deletes that directory anyway.
 
 ### 8. Behavioural parity check
 
