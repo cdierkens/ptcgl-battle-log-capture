@@ -21,9 +21,9 @@ destination like any other.
   only identity is an httpOnly, `SameSite=Lax` session cookie (`pokedojo-auth`), minted
   by the server from a Firebase ID token the browser sends to `/auth/session`
   (`apps/web/app/lib/auth/identity.server.ts`). Loaders and actions read no
-  `Authorization` header, so a desktop app has nothing to send.
-  The preset therefore depends on PokeDojo shipping an API token or device flow. It is not a
-  capture-side task.
+  `Authorization` header, so a desktop app has nothing to send. The preset therefore
+  depends on PokeDojo shipping an API token or device flow. It is not a capture-side
+  task.
 - Analysis (`GameSummary`) exists only in TypeScript, through the npm parser. A body
   mapping that uses it must run in a webview, or the parse must be made available to
   Rust. The upload spec decides which, along with keychain-backed secrets and how to
