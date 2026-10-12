@@ -172,7 +172,7 @@ The Rust core is untouched apart from formatting and the rename, so `cargo test`
 
 ### 9. Remove from PokeDojo
 
-PR in `pokedojo.pro`: delete `apps/battle-log-capture`, drop it from `pnpm-workspace.yaml`, and point the capture docs/specs/ADRs at the new repo. A short note is enough; don't move them. The stale upload spec (`2026-10-07-battle-log-upload.md`), its ADR (`0012-upload-via-webview`) and plan were never committed; delete them. Their one live fact, PokeDojo's cookie-only auth, is restated in ADR 0005.
+PR in `pokedojo.pro`: delete `apps/battle-log-capture`, drop it from `pnpm-workspace.yaml`, and point the capture docs/specs/ADRs at the new repo. A short note is enough; don't move them. The stale upload spec (`2026-10-07-battle-log-upload.md`), its ADR (`0012-battle-log-upload-via-webview.md`) and plan were never merged; they live only on the unpushed local branch `feat/battle-log-upload`. Delete the working-tree copies. Their one live fact, PokeDojo's cookie-only auth, is restated in ADR 0005.
 
 ### 10. Workspace wiring
 

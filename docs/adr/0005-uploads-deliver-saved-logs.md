@@ -19,8 +19,9 @@ destination like any other.
   saving the single entry point. It adds a delivery queue keyed by the saved log.
 - A PokeDojo preset needs a machine credential that PokeDojo does not have today. Its
   only identity is an httpOnly, `SameSite=Lax` session cookie (`pokedojo-auth`), minted
-  by the server from a Firebase ID token the browser sends to `/auth/session` (`apps/web/app/lib/auth/identity.server.ts`).
-  Loaders and actions read no `Authorization` header, so a desktop app has nothing to send.
+  by the server from a Firebase ID token the browser sends to `/auth/session`
+  (`apps/web/app/lib/auth/identity.server.ts`). Loaders and actions read no
+  `Authorization` header, so a desktop app has nothing to send.
   The preset therefore depends on PokeDojo shipping an API token or device flow. It is not a
   capture-side task.
 - Analysis (`GameSummary`) exists only in TypeScript, through the npm parser. A body
