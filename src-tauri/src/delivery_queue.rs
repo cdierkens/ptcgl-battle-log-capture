@@ -40,7 +40,7 @@ impl DeliveryState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Release {
     Now,
-    /// Saved from the results screen: held until it goes away.
+    /// Starts `Held`.
     AfterResults,
 }
 
@@ -50,10 +50,18 @@ pub struct Delivery {
     pub log: String,
     pub destination: String,
     pub state: DeliveryState,
+    /// Failed sends so far.
     pub attempts: u32,
     /// Unix milliseconds; only meaningful while `Pending`.
     pub next_attempt_at: i64,
     pub last_error: Option<String>,
+}
+
+/// A destination paused because it rejected its token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attention {
+    pub destination: String,
+    pub reason: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -76,7 +84,7 @@ pub struct DeliveryQueue {
 }
 
 impl DeliveryQueue {
-    /// `<app data>/sync.sqlite`: app state, not the player's data (ADR 0002).
+    /// `<app data>/sync.sqlite`. App state stays out of the log folder (ADR 0002).
     pub fn resolve_path(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
         use tauri::Manager;
         Ok(app.path().app_data_dir()?.join(FILE_NAME))
@@ -94,9 +102,11 @@ impl DeliveryQueue {
         Self::init(Connection::open_in_memory()?)
     }
 
+    // Every table is `IF NOT EXISTS`, so this is safe on any database at this version.
+    // A later schema change bumps `SCHEMA_VERSION` and adds a migration step here.
     fn init(conn: Connection) -> Result<Self, QueueError> {
         let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version < SCHEMA_VERSION {
+        if version <= SCHEMA_VERSION {
             conn.execute_batch(&format!(
                 "CREATE TABLE IF NOT EXISTS deliveries (
                     log TEXT NOT NULL,
@@ -143,6 +153,15 @@ impl DeliveryQueue {
         Ok(())
     }
 
+    /// At launch: no results screen is up, so nothing can be undone.
+    pub fn release_all_held(&self) -> Result<(), QueueError> {
+        self.conn.execute(
+            "UPDATE deliveries SET state = ?1 WHERE state = ?2",
+            params![DeliveryState::Pending.as_str(), DeliveryState::Held.as_str()],
+        )?;
+        Ok(())
+    }
+
     /// Undo: drop deliveries of `log` that never left the app.
     pub fn drop_held(&self, log: &str) -> Result<(), QueueError> {
         self.conn.execute(
@@ -159,8 +178,11 @@ impl DeliveryQueue {
     }
 
     pub fn remove_destination(&self, destination: &str) -> Result<(), QueueError> {
-        self.conn.execute("DELETE FROM deliveries WHERE destination = ?1", [destination])?;
-        self.clear_attention(destination)
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM deliveries WHERE destination = ?1", [destination])?;
+        tx.execute("DELETE FROM destination_attention WHERE destination = ?1", [destination])?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// The destination rejected its token: pause it until the player fixes it.
@@ -173,17 +195,25 @@ impl DeliveryQueue {
         Ok(())
     }
 
-    /// A new token was saved: resume the destination's paused deliveries.
+    /// A new token was saved: resume the destination's paused deliveries, due at once,
+    /// with a fresh give-up window so the pause doesn't count against them.
     pub fn clear_attention(&self, destination: &str) -> Result<(), QueueError> {
-        self.conn.execute("DELETE FROM destination_attention WHERE destination = ?1", [destination])?;
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM destination_attention WHERE destination = ?1", [destination])?;
+        tx.execute(
+            "UPDATE deliveries SET first_failed_at = NULL, next_attempt_at = 0
+             WHERE destination = ?1 AND state = ?2",
+            params![destination, DeliveryState::Pending.as_str()],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
-    /// Destinations that need attention, with the reason, for the drawer badge.
-    pub fn needing_attention(&self) -> Result<Vec<(String, String)>, QueueError> {
+    /// For the drawer badge.
+    pub fn needing_attention(&self) -> Result<Vec<Attention>, QueueError> {
         let mut stmt =
             self.conn.prepare("SELECT destination, reason FROM destination_attention ORDER BY destination")?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let rows = stmt.query_map([], |r| Ok(Attention { destination: r.get(0)?, reason: r.get(1)? }))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
@@ -206,8 +236,16 @@ impl DeliveryQueue {
         self.select("WHERE log = ?1 ORDER BY destination", params![log])
     }
 
+    // The `mark_*` results apply only to a delivery that is still pending, so a send that
+    // finishes after Undo or a re-enqueue can't overwrite the newer state.
+
     pub fn mark_synced(&self, log: &str, destination: &str) -> Result<(), QueueError> {
-        self.set_state(log, destination, DeliveryState::Synced, None)
+        self.conn.execute(
+            "UPDATE deliveries SET state = ?3, last_error = NULL
+             WHERE log = ?1 AND destination = ?2 AND state = ?4",
+            params![log, destination, DeliveryState::Synced.as_str(), DeliveryState::Pending.as_str()],
+        )?;
+        Ok(())
     }
 
     /// A transient failure: retry with backoff until `GIVE_UP_AFTER`, then fail.
@@ -215,8 +253,9 @@ impl DeliveryQueue {
         let row: Option<(u32, Option<i64>)> = self
             .conn
             .query_row(
-                "SELECT attempts, first_failed_at FROM deliveries WHERE log = ?1 AND destination = ?2",
-                params![log, destination],
+                "SELECT attempts, first_failed_at FROM deliveries
+                 WHERE log = ?1 AND destination = ?2 AND state = ?3",
+                params![log, destination, DeliveryState::Pending.as_str()],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
@@ -229,29 +268,18 @@ impl DeliveryQueue {
         self.conn.execute(
             "UPDATE deliveries SET state = ?3, attempts = ?4, first_failed_at = ?5,
                 next_attempt_at = ?6, last_error = ?7
-             WHERE log = ?1 AND destination = ?2",
-            params![log, destination, state.as_str(), attempts, first, next, error],
+             WHERE log = ?1 AND destination = ?2 AND state = ?8",
+            params![log, destination, state.as_str(), attempts, first, next, error, DeliveryState::Pending.as_str()],
         )?;
         Ok(())
     }
 
     /// The destination rejected this log (a 4xx other than auth): no more retries.
     pub fn mark_failed(&self, log: &str, destination: &str, error: &str) -> Result<(), QueueError> {
-        self.set_state(log, destination, DeliveryState::Failed, Some(error))
-    }
-
-    fn set_state(
-        &self,
-        log: &str,
-        destination: &str,
-        state: DeliveryState,
-        error: Option<&str>,
-    ) -> Result<(), QueueError> {
-        let counts_attempt = state == DeliveryState::Failed;
         self.conn.execute(
-            "UPDATE deliveries SET state = ?3, attempts = attempts + ?4, last_error = ?5
-             WHERE log = ?1 AND destination = ?2",
-            params![log, destination, state.as_str(), counts_attempt as u32, error],
+            "UPDATE deliveries SET state = ?3, attempts = attempts + 1, last_error = ?4
+             WHERE log = ?1 AND destination = ?2 AND state = ?5",
+            params![log, destination, DeliveryState::Failed.as_str(), error, DeliveryState::Pending.as_str()],
         )?;
         Ok(())
     }
@@ -372,7 +400,10 @@ mod tests {
         let due: Vec<_> = q.due(0).unwrap().into_iter().map(|d| d.destination).collect();
         assert_eq!(due, ["court"]);
         assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Pending));
-        assert_eq!(q.needing_attention().unwrap(), [("pokedojo".to_owned(), "401 Unauthorized".to_owned())]);
+        assert_eq!(
+            q.needing_attention().unwrap(),
+            [Attention { destination: "pokedojo".to_owned(), reason: "401 Unauthorized".to_owned() }]
+        );
         q.clear_attention("pokedojo").unwrap();
         assert_eq!(q.due(0).unwrap().len(), 2);
         assert!(q.needing_attention().unwrap().is_empty());
@@ -429,6 +460,62 @@ mod tests {
         q.mark_synced("a.txt", "pokedojo").unwrap();
         let all: Vec<_> = q.all().unwrap().into_iter().map(|d| (d.log, d.state)).collect();
         assert_eq!(all, [("a.txt".to_owned(), Synced), ("b.txt".to_owned(), Held)]);
+    }
+
+    #[test]
+    fn a_pause_does_not_count_toward_giving_up() {
+        let q = queue();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
+        q.mark_retry("a.txt", "pokedojo", "503", 0).unwrap();
+        q.flag_attention("pokedojo", "401").unwrap();
+        q.clear_attention("pokedojo").unwrap();
+        let due = q.due(48 * HOUR).unwrap();
+        assert_eq!(due.len(), 1, "due at once after the token fix");
+        q.mark_retry("a.txt", "pokedojo", "503", 48 * HOUR).unwrap();
+        assert_eq!(state(&q, "a.txt", "pokedojo"), Some(Pending));
+    }
+
+    #[test]
+    fn a_late_send_result_cannot_release_a_re_held_delivery() {
+        let q = queue();
+        q.enqueue("a.txt", "pokedojo", Release::Now).unwrap();
+        q.enqueue("a.txt", "pokedojo", Release::AfterResults).unwrap();
+        q.mark_retry("a.txt", "pokedojo", "timeout", 0).unwrap();
+        q.mark_synced("a.txt", "pokedojo").unwrap();
+        q.mark_failed("a.txt", "pokedojo", "422").unwrap();
+        let d = &q.for_log("a.txt").unwrap()[0];
+        assert_eq!((d.state, d.attempts), (Held, 0));
+    }
+
+    #[test]
+    fn launch_releases_every_held_delivery() {
+        let q = queue();
+        q.enqueue("a.txt", "pokedojo", Release::AfterResults).unwrap();
+        q.enqueue("b.txt", "pokedojo", Release::AfterResults).unwrap();
+        q.release_all_held().unwrap();
+        assert_eq!(q.due(0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_database_from_before_the_attention_table_gains_it() {
+        let dir = std::env::temp_dir().join(format!("ptcgl-queue-old-{}", std::process::id()));
+        let path = dir.join("sync.sqlite");
+        std::fs::create_dir_all(&dir).unwrap();
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE deliveries (
+                    log TEXT NOT NULL, destination TEXT NOT NULL, state TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0, first_failed_at INTEGER,
+                    next_attempt_at INTEGER NOT NULL DEFAULT 0, last_error TEXT,
+                    PRIMARY KEY (log, destination));
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        let q = DeliveryQueue::open(&path).unwrap();
+        q.flag_attention("pokedojo", "401").unwrap();
+        assert!(q.due(0).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
