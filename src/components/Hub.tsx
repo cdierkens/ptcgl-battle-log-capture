@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import type { CaptureStatusEvent } from "../lib/tauri";
 
-import { chipForState, isResultsState } from "../lib/capture-status";
+import { chipForState, isResultsState, matchNeedsPaste } from "../lib/capture-status";
 import { needsAttention } from "../lib/status-history";
 import { syncNeedsAttention } from "../lib/sync-status";
 import { useMatches } from "../lib/use-matches";
@@ -15,6 +15,7 @@ import { useSyncStatus } from "../lib/use-sync-status";
 import { HelpTab } from "./HelpTab";
 import { MatchCard } from "./MatchCard";
 import { MatchList } from "./MatchList";
+import { PasteForm } from "./PasteForm";
 import { SettingsTab } from "./SettingsTab";
 
 interface HubProps {
@@ -76,6 +77,11 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
           </TabsTrigger>
         </TabsList>
         <TabsContent className="min-h-0 overflow-y-auto" value="matches">
+          {matchNeedsPaste(overlay.state) ? null : (
+            <section aria-label="Save a Battle Log" className="border-b border-border p-4">
+              <PasteForm matchState={null} onSaved={matches.refresh} />
+            </section>
+          )}
           <MatchList destinations={destinations} matches={matches} playerName={playerName} sync={sync.status} />
         </TabsContent>
         <TabsContent className="min-h-0 overflow-y-auto" value="settings">

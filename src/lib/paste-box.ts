@@ -13,15 +13,19 @@ export interface PasteModel {
 }
 
 export const ALREADY_SAVED_MESSAGE = "That Battle Log was already saved. Export this match's Battle Log and paste it.";
+export const DUPLICATE_LOG_MESSAGE = "That Battle Log is already saved.";
 
 export const initialPaste: PasteModel = { error: null, submitting: false, text: "" };
 
-/** A re-paste only counts as success once this match's log is saved. */
-export function actionForOutcome(outcome: SubmitOutcome, overlayState: null | string): PasteAction {
-  if (outcome.kind === "alreadySaved" && overlayState !== "Saved") {
-    return { message: ALREADY_SAVED_MESSAGE, type: "failed" };
-  }
-  return { type: "saved" };
+/**
+ * For a match (its overlay state), a re-paste only counts once that match's log is saved.
+ * For any log (null), a re-paste is a duplicate.
+ */
+export function actionForOutcome(outcome: SubmitOutcome, matchState: null | string): PasteAction {
+  if (outcome.kind !== "alreadySaved") return { type: "saved" };
+  if (matchState === null) return { message: DUPLICATE_LOG_MESSAGE, type: "failed" };
+  if (matchState === "Saved") return { type: "saved" };
+  return { message: ALREADY_SAVED_MESSAGE, type: "failed" };
 }
 
 export function isBlank(text: string): boolean {

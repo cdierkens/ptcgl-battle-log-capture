@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chipForState, handleForState, historyText, isResultsState, logSavedState } from "./capture-status";
+import { chipForState, handleForState, historyText, isResultsState, logSavedState, matchNeedsPaste } from "./capture-status";
 
 describe("chipForState", () => {
   it("maps overlay states to the header chip", () => {
@@ -57,5 +57,12 @@ describe("logSavedState", () => {
   it("is true only for the saved overlay state", () => {
     expect(logSavedState("Saved")).toBe(true);
     expect(logSavedState("Results")).toBe(false);
+  });
+});
+
+describe("matchNeedsPaste", () => {
+  it("is true only while this match's Battle Log is unsaved", () => {
+    expect(["Results", "Dismissed"].every(matchNeedsPaste)).toBe(true);
+    expect(["Saved", "InMatch", null].some(matchNeedsPaste)).toBe(false);
   });
 });

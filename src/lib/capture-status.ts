@@ -56,3 +56,8 @@ export function isResultsState(state: null | string): boolean {
 export function logSavedState(state: null | string): boolean {
   return state === "Saved";
 }
+
+/** Whether the results-screen card is asking for this match's Battle Log. */
+export function matchNeedsPaste(state: null | string): boolean {
+  return state === "Results" || state === "Dismissed";
+}
