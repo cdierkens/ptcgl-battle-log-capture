@@ -19,12 +19,14 @@ const CHIPS: Record<string, StateLabel> = {
   PermissionRequired: { label: "Permission needed", variant: "destructive" },
   Results: { label: "Ready to save", variant: "default" },
   Saved: { label: "Saved", variant: "default" },
+  WarmingUp: { label: "Starting up", variant: "secondary" },
 };
 
 const HANDLES: Record<string, HandleLook> = {
   Dismissed: { label: "Save Battle Log", pulse: false, variant: "default" },
   Results: { label: "Save Battle Log", pulse: true, variant: "default" },
   Saved: { label: "✓ Saved", pulse: false, variant: "default" },
+  WarmingUp: { label: "Starting up…", pulse: false, variant: "outline" },
 };
 
 const QUIET_HANDLE: HandleLook = { label: "Battle Log", pulse: false, variant: "outline" };

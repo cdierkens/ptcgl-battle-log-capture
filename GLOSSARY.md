@@ -38,6 +38,11 @@ _Avoid_: scraping, auto-export, automation
 Recognising, by reading the screen, that PTCG Live is showing the results screen.
 _Avoid_: trigger, hook
 
+**Warm-up**:
+The startup period, up to about a minute after a fresh install or update, while the OS
+text recognizer loads. Results detection is off; the capture drawer says "Starting up…".
+_Avoid_: loading, boot
+
 **Capture drawer**:
 The app's in-game hub. It slides out from the PTCG Live window while the game is active,
 and it holds saving this match's log, past matches, and settings.

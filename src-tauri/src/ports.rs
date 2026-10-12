@@ -85,4 +85,8 @@ pub trait TextRecognizer {
     /// Like `find_text`, but a match is any recognized string that *contains*
     /// one of `needles` as a substring.
     fn find_text_containing(&self, frame: &Frame, needles: &[String]) -> Vec<TextMatch>;
+
+    /// Pay any one-time startup cost; blocks until recognition is fast. Run it off
+    /// the engine thread. Vision's first request in a new binary takes about a minute.
+    fn warm_up(&self) {}
 }

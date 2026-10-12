@@ -1,9 +1,10 @@
 //! Overlay engine: watches the game window read-only and drives the capture
 //! drawer and Continue shield. It never sends input to the game.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -20,7 +21,7 @@ use crate::platform::focus::WorkspaceFocusProbe;
 use crate::platform::ocr::VisionTextRecognizer;
 use crate::platform::permission::ScreenRecordingAccess;
 use crate::platform::window::XcapGame;
-use crate::ports::{FrameCapturer, OverlayPresenter, ScreenCaptureAccess, WindowInfo, WindowProvider};
+use crate::ports::{FrameCapturer, OverlayPresenter, ScreenCaptureAccess, TextRecognizer, WindowInfo, WindowProvider};
 use crate::settings::{self, SharedSettings};
 use crate::sink::{LogSink, SubmitError, SubmitOutcome};
 
@@ -72,6 +73,8 @@ pub struct EngineCtx {
     /// Cleared once the shield leaves `Saved` (Undo, next match).
     last_autosave: Option<String>,
     game_focused: bool,
+    /// Text recognition has warmed up; until then polls skip OCR.
+    recognizer_ready: bool,
     overlay_error: Option<String>,
     rendered_drawer: Option<WindowInfo>,
     rendered_shield: Option<(WindowInfo, ScreenRect)>,
@@ -92,6 +95,7 @@ impl EngineCtx {
             clipboard: ClipboardWatch::new(),
             last_autosave: None,
             game_focused: false,
+            recognizer_ready: false,
             overlay_error: None,
             rendered_drawer: None,
             rendered_shield: None,
@@ -101,6 +105,10 @@ impl EngineCtx {
     /// The last overlay window failure, cleared once rendering succeeds.
     pub fn overlay_error(&self) -> Option<&str> {
         self.overlay_error.as_deref()
+    }
+
+    pub fn set_recognizer_ready(&mut self, ready: bool) {
+        self.recognizer_ready = ready;
     }
 
     pub fn set_prompts(&mut self, on: bool) {
@@ -194,7 +202,7 @@ impl EngineCtx {
             self.render(None, presenter);
             return false;
         };
-        self.apply(OverlayEvent::WindowFound);
+        self.apply(if self.recognizer_ready { OverlayEvent::WindowFound } else { OverlayEvent::WindowFoundWarmingUp });
         // Detection keeps running while another app is active; only rendering is gated.
         let focused = self.focus.observe(focus.active_pid(), window.pid, self.own_pid);
         // Hide instead of chasing a dragged or resized window; show on the first stable poll.
@@ -204,6 +212,10 @@ impl EngineCtx {
         let visible = focused && settled;
         self.game_focused = focused;
         let shown = visible.then_some(&window);
+        if !self.recognizer_ready {
+            self.render(shown, presenter);
+            return true;
+        }
         if let Some(frame) = frames.capture(&window) {
             self.polls = self.polls.wrapping_add(1);
             let sweep = self.polls % SWEEP_EVERY == 0;
@@ -293,6 +305,16 @@ pub fn run(
     let screen_access = ScreenRecordingAccess;
     let mut permission_requested = false;
     let mut ctx = EngineCtx::new(OverlayState::NoWindow, std::process::id());
+    let recognizer_ready = Arc::new(AtomicBool::new(false));
+    {
+        let ready = Arc::clone(&recognizer_ready);
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            VisionTextRecognizer.warm_up();
+            info!(secs = started.elapsed().as_secs_f64(), "Text recognition ready");
+            ready.store(true, Ordering::Release);
+        });
+    }
     let mut published: Option<(OverlayState, Option<String>)> = None;
     let mut published_error: Option<String> = None;
     let mut published_clipboard: Option<String> = None;
@@ -301,6 +323,7 @@ pub fn run(
         while let Ok(event) = inbox.try_recv() {
             ctx.apply(event);
         }
+        ctx.set_recognizer_ready(recognizer_ready.load(Ordering::Acquire));
         let current = settings::current(&settings);
         ctx.set_prompts(current.prompt_after_match);
         ctx.set_autosave(current.clipboard_autosave);
@@ -396,6 +419,7 @@ fn status_message(state: OverlayState) -> &'static str {
     match state {
         OverlayState::PermissionRequired => "Screen Recording permission required",
         OverlayState::NoWindow => "Waiting for the game window",
+        OverlayState::WarmingUp => "Starting text recognition",
         OverlayState::InMatch => "Watching for the results screen",
         OverlayState::Results { shield: ShieldStatus::Up, .. } => "Results screen: save your Battle Log",
         OverlayState::Results { shield: ShieldStatus::Saved, .. } => "Battle Log saved",
@@ -509,7 +533,9 @@ mod tests {
     }
 
     fn ctx() -> EngineCtx {
-        EngineCtx::new(OverlayState::NoWindow, OWN_PID)
+        let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
+        ctx.set_recognizer_ready(true);
+        ctx
     }
 
     fn poll<P: OverlayPresenter>(
@@ -721,6 +747,21 @@ mod tests {
         assert!(poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &presenter));
         assert_eq!(ctx.state, OverlayState::InMatch);
         assert_eq!(presenter.calls(), vec!["show_drawer"]);
+    }
+
+    #[test]
+    fn warming_up_shows_the_handle_but_skips_detection() {
+        let presenter = RecordingPresenter::default();
+        let probe = results_screen();
+        let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
+        assert!(poll(&mut ctx, &probe, &active(GAME_PID), &presenter));
+        assert_eq!(ctx.state, OverlayState::WarmingUp);
+        assert_eq!(presenter.calls(), vec!["show_drawer"]);
+        assert_eq!(probe.continue_calls.get(), 0);
+
+        ctx.set_recognizer_ready(true);
+        poll(&mut ctx, &probe, &active(GAME_PID), &presenter);
+        assert_eq!(ctx.state.name(), "Results");
     }
 
     #[test]

@@ -13,6 +13,8 @@ pub enum ShieldStatus {
 pub enum OverlayState {
     PermissionRequired,
     NoWindow,
+    /// The game window is up but text recognition is still starting, so results detection is off.
+    WarmingUp,
     InMatch,
     /// `continue_rect` is window-local, so the shield follows window moves.
     Results {
@@ -25,6 +27,8 @@ pub enum OverlayState {
 pub enum OverlayEvent {
     PermissionDenied,
     WindowFound,
+    /// The game window was found before text recognition is ready.
+    WindowFoundWarmingUp,
     WindowLost,
     ResultsDetected,
     ContinueLocated(ScreenRect),
@@ -41,8 +45,9 @@ pub fn transition(state: OverlayState, event: OverlayEvent) -> OverlayState {
     use OverlayState as S;
     match (state, event) {
         (_, E::PermissionDenied) => S::PermissionRequired,
-        (S::PermissionRequired | S::NoWindow, E::WindowFound) => S::InMatch,
-        (S::PermissionRequired | S::InMatch | S::Results { .. }, E::WindowLost) => S::NoWindow,
+        (S::PermissionRequired | S::NoWindow | S::WarmingUp, E::WindowFound) => S::InMatch,
+        (S::PermissionRequired | S::NoWindow, E::WindowFoundWarmingUp) => S::WarmingUp,
+        (S::PermissionRequired | S::WarmingUp | S::InMatch | S::Results { .. }, E::WindowLost) => S::NoWindow,
         (S::InMatch, E::ResultsDetected) => S::Results { shield: ShieldStatus::Up, continue_rect: None },
         (S::Results { shield, .. }, E::ContinueLocated(rect)) => S::Results { shield, continue_rect: Some(rect) },
         (S::Results { shield: ShieldStatus::Up | ShieldStatus::Dismissed, continue_rect }, E::LogSaved) => {
@@ -62,7 +67,7 @@ pub fn transition(state: OverlayState, event: OverlayEvent) -> OverlayState {
 impl OverlayState {
     /// Whether the capture drawer (handle or open drawer) shows over the game.
     pub fn drawer_visible(&self) -> bool {
-        matches!(self, OverlayState::InMatch | OverlayState::Results { .. })
+        matches!(self, OverlayState::WarmingUp | OverlayState::InMatch | OverlayState::Results { .. })
     }
 
     /// The window-local shield rect, or `None` when the shield is hidden or prompts are off.
@@ -78,6 +83,7 @@ impl OverlayState {
         match self {
             OverlayState::PermissionRequired => "PermissionRequired",
             OverlayState::NoWindow => "NoWindow",
+            OverlayState::WarmingUp => "WarmingUp",
             OverlayState::InMatch => "InMatch",
             OverlayState::Results { shield: ShieldStatus::Up, .. } => "Results",
             OverlayState::Results { shield: ShieldStatus::Saved, .. } => "Saved",
@@ -104,7 +110,7 @@ mod tests {
 
     #[test]
     fn permission_denied_from_any_state() {
-        for s in [S::NoWindow, S::InMatch, UP_LOCATED] {
+        for s in [S::NoWindow, S::WarmingUp, S::InMatch, UP_LOCATED] {
             assert_eq!(transition(s, E::PermissionDenied), S::PermissionRequired);
         }
     }
@@ -118,9 +124,18 @@ mod tests {
 
     #[test]
     fn window_lost_returns_to_no_window() {
-        for s in [S::PermissionRequired, S::InMatch, UP_LOCATED] {
+        for s in [S::PermissionRequired, S::WarmingUp, S::InMatch, UP_LOCATED] {
             assert_eq!(transition(s, E::WindowLost), S::NoWindow);
         }
+    }
+
+    #[test]
+    fn a_window_found_while_warming_up_waits_for_recognition() {
+        assert_eq!(transition(S::NoWindow, E::WindowFoundWarmingUp), S::WarmingUp);
+        assert_eq!(transition(S::PermissionRequired, E::WindowFoundWarmingUp), S::WarmingUp);
+        assert_eq!(transition(S::WarmingUp, E::WindowFoundWarmingUp), S::WarmingUp);
+        assert_eq!(transition(S::WarmingUp, E::ResultsDetected), S::WarmingUp);
+        assert_eq!(transition(S::WarmingUp, E::WindowFound), S::InMatch);
     }
 
     #[test]
@@ -169,6 +184,7 @@ mod tests {
     fn drawer_and_shield_follow_the_state() {
         assert!(!S::PermissionRequired.drawer_visible());
         assert!(!S::NoWindow.drawer_visible());
+        assert!(S::WarmingUp.drawer_visible());
         assert!(S::InMatch.drawer_visible());
         assert!(UP.drawer_visible());
         assert_eq!(UP.shield_rect(true), None);
@@ -182,6 +198,7 @@ mod tests {
     #[test]
     fn names_are_stable() {
         assert_eq!(S::InMatch.to_string(), "InMatch");
+        assert_eq!(S::WarmingUp.name(), "WarmingUp");
         assert_eq!(UP.name(), "Results");
         assert_eq!(transition(UP, E::LogSaved).name(), "Saved");
         assert_eq!(transition(UP, E::Dismissed).name(), "Dismissed");

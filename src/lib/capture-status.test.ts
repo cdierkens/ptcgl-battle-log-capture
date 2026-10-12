@@ -5,6 +5,7 @@ import { chipForState, handleForState, historyText, isResultsState, logSavedStat
 describe("chipForState", () => {
   it("maps overlay states to the header chip", () => {
     expect(chipForState("NoWindow")).toEqual({ label: "Waiting for the game", variant: "secondary" });
+    expect(chipForState("WarmingUp")).toEqual({ label: "Starting up", variant: "secondary" });
     expect(chipForState("InMatch")).toEqual({ label: "Watching", variant: "secondary" });
     expect(chipForState("Results")).toEqual({ label: "Ready to save", variant: "default" });
     expect(chipForState("Dismissed")).toEqual({ label: "Ready to save", variant: "default" });
@@ -20,6 +21,9 @@ describe("chipForState", () => {
 describe("handleForState", () => {
   it("is quiet mid-match", () => {
     expect(handleForState("InMatch")).toEqual({ label: "Battle Log", pulse: false, variant: "outline" });
+  });
+  it("says it is starting up during warm-up", () => {
+    expect(handleForState("WarmingUp")).toEqual({ label: "Starting up…", pulse: false, variant: "outline" });
   });
   it("asks to save on results, pulsing only when the shield is up", () => {
     expect(handleForState("Results")).toEqual({ label: "Save Battle Log", pulse: true, variant: "default" });

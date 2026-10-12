@@ -32,6 +32,12 @@ impl TextRecognizer for VisionTextRecognizer {
     fn find_text_containing(&self, frame: &Frame, needles: &[String]) -> Vec<TextMatch> {
         self.scan(frame, needles, MatchKind::Substring)
     }
+
+    /// A blank frame is enough: it pays the whole cold start.
+    fn warm_up(&self) {
+        let blank = Frame { width: 64, height: 64, rgba: vec![255; 64 * 64 * 4] };
+        self.scan(&blank, &[], MatchKind::Exact);
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
