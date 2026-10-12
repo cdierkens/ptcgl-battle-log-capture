@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
-use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::settings;
 
@@ -22,11 +22,7 @@ pub fn init() -> WorkerGuard {
     let stderr_layer = tracing_subscriber::fmt::layer().with_target(false).compact();
     let file_layer = tracing_subscriber::fmt::layer().with_ansi(false).with_writer(non_blocking);
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(stderr_layer)
-        .with(file_layer)
-        .init();
+    tracing_subscriber::registry().with(filter).with(stderr_layer).with(file_layer).init();
 
     guard
 }

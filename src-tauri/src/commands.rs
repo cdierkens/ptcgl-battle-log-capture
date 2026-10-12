@@ -7,10 +7,10 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::{ClipboardAccess, ClipboardProbe};
-use crate::logs::{self, LogSummary};
-use crate::platform::clipboard::SystemClipboard;
-use crate::overlay_state::{OverlayEvent, OverlayState};
 use crate::diagnostics::Diagnostics;
+use crate::logs::{self, LogSummary};
+use crate::overlay_state::{OverlayEvent, OverlayState};
+use crate::platform::clipboard::SystemClipboard;
 use crate::platform::permission::ScreenRecordingAccess;
 use crate::ports::{OverlayPresenter, ScreenCaptureAccess};
 use crate::settings::{self, Settings, SharedSettings};

@@ -9,13 +9,13 @@ pub struct ButtonLabels {
 }
 
 pub const BUTTON_LABELS: &[(&str, ButtonLabels)] = &[
-    ("en",    ButtonLabels { battle_log: "Battle Log",           continue_label: "Continue" }),
-    ("de",    ButtonLabels { battle_log: "Kampf-Protokoll",      continue_label: "Fortfahren" }),
-    ("es",    ButtonLabels { battle_log: "registro del combate", continue_label: "Continuar" }),
+    ("en", ButtonLabels { battle_log: "Battle Log", continue_label: "Continue" }),
+    ("de", ButtonLabels { battle_log: "Kampf-Protokoll", continue_label: "Fortfahren" }),
+    ("es", ButtonLabels { battle_log: "registro del combate", continue_label: "Continuar" }),
     ("es_la", ButtonLabels { battle_log: "registro del combate", continue_label: "Continuar" }),
-    ("fr",    ButtonLabels { battle_log: "Journal de combat",    continue_label: "Continuer" }),
-    ("it",    ButtonLabels { battle_log: "registro lotta",       continue_label: "Continua" }),
-    ("ptbr",  ButtonLabels { battle_log: "Registro de Batalha",  continue_label: "Continuar" }),
+    ("fr", ButtonLabels { battle_log: "Journal de combat", continue_label: "Continuer" }),
+    ("it", ButtonLabels { battle_log: "registro lotta", continue_label: "Continua" }),
+    ("ptbr", ButtonLabels { battle_log: "Registro de Batalha", continue_label: "Continuar" }),
 ];
 
 /// Needle set for the "Battle Log" label across all locales: the results-screen

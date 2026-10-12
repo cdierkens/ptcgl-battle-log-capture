@@ -70,10 +70,7 @@ pub fn exists() -> bool {
 }
 
 pub fn load() -> Settings {
-    fs::read_to_string(settings_path())
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    fs::read_to_string(settings_path()).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
 }
 
 pub fn save(settings: &Settings) -> Result<(), String> {

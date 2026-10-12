@@ -14,10 +14,7 @@ pub fn window_to_screen(window_origin: Point, local: Point) -> Point {
 
 /// Center of a rectangle given its top-left corner and pixel size.
 pub fn rect_center(top_left: Point, size: (u32, u32)) -> Point {
-    Point {
-        x: top_left.x + (size.0 as i32) / 2,
-        y: top_left.y + (size.1 as i32) / 2,
-    }
+    Point { x: top_left.x + (size.0 as i32) / 2, y: top_left.y + (size.1 as i32) / 2 }
 }
 
 /// Uniform scale from captured-frame pixels to window points. Screen capture on
@@ -125,11 +122,7 @@ mod tests {
     #[test]
     fn crop_extracts_sub_rectangle() {
         // 2x1 pixels: left pixel red, right pixel blue.
-        let f = Frame {
-            width: 2,
-            height: 1,
-            rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
-        };
+        let f = Frame { width: 2, height: 1, rgba: vec![255, 0, 0, 255, 0, 0, 255, 255] };
         let crop = crop_frame(&f, RelativeRect { x0: 0.5, y0: 0.0, x1: 1.0, y1: 1.0 }).unwrap();
         assert_eq!(crop.frame.width, 1);
         assert_eq!(crop.frame.height, 1);

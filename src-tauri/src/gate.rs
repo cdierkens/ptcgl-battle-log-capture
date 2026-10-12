@@ -4,11 +4,7 @@
 /// validator is the TypeScript parser in @pokedojo/logic; this just avoids
 /// saving arbitrary clipboard content.
 pub fn looks_like_battle_log(text: &str) -> bool {
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect();
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
 
     if lines.is_empty() {
         return false;

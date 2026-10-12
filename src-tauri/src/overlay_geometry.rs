@@ -44,12 +44,7 @@ pub fn shield_rect(game: &WindowInfo, frame: &Frame, m: &TextMatch) -> ScreenRec
     let (lw, lh) = (f64::from(m.width) / scale, f64::from(m.height) / scale);
     let width = (lw + 2.0 * SHIELD_PAD_PT.0).max(SHIELD_MIN_PT.0);
     let height = (lh + 2.0 * SHIELD_PAD_PT.1).max(SHIELD_MIN_PT.1);
-    ScreenRect {
-        x: lx + lw / 2.0 - width / 2.0,
-        y: ly + lh / 2.0 - height / 2.0,
-        width,
-        height,
-    }
+    ScreenRect { x: lx + lw / 2.0 - width / 2.0, y: ly + lh / 2.0 - height / 2.0, width, height }
 }
 
 /// Offset a window-local rect by the game window origin.

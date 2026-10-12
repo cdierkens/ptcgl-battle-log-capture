@@ -135,7 +135,10 @@ mod tests {
             serde_json::to_value(SubmitOutcome::Saved { path: "/x".into() }).unwrap(),
             serde_json::json!({ "kind": "saved", "path": "/x" })
         );
-        assert_eq!(serde_json::to_value(SubmitOutcome::AlreadySaved).unwrap(), serde_json::json!({ "kind": "alreadySaved" }));
+        assert_eq!(
+            serde_json::to_value(SubmitOutcome::AlreadySaved).unwrap(),
+            serde_json::json!({ "kind": "alreadySaved" })
+        );
         assert_eq!(
             serde_json::to_value(SubmitError::NotABattleLog).unwrap(),
             serde_json::json!("That doesn't look like a PTCG Live battle log.")

@@ -12,8 +12,7 @@ use objc2::AnyThread;
 use objc2_foundation::{NSArray, NSData, NSDictionary};
 #[cfg(target_os = "macos")]
 use objc2_vision::{
-    VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
-    VNRequestTextRecognitionLevel,
+    VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestTextRecognitionLevel,
 };
 
 #[cfg(target_os = "macos")]
