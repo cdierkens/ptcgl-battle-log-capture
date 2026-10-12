@@ -1,29 +1,30 @@
 export interface HandleLook {
   label: string;
   pulse: boolean;
-  variant: "brand" | "outline" | "positive";
+  variant: "default" | "outline";
 }
 
 export interface StateLabel {
   label: string;
-  tone: Tone;
+  variant: BadgeVariant;
 }
 
-export type Tone = "brand" | "caution" | "critical" | "info" | "outline" | "positive" | "secondary";
+/** shadcn badge variants; status tones collapse onto these (ADR 0003). */
+export type BadgeVariant = "default" | "destructive" | "outline" | "secondary";
 
 const CHIPS: Record<string, StateLabel> = {
-  Dismissed: { label: "Ready to save", tone: "brand" },
-  InMatch: { label: "Watching", tone: "info" },
-  NoWindow: { label: "Waiting for the game", tone: "secondary" },
-  PermissionRequired: { label: "Permission needed", tone: "critical" },
-  Results: { label: "Ready to save", tone: "brand" },
-  Saved: { label: "Saved", tone: "positive" },
+  Dismissed: { label: "Ready to save", variant: "default" },
+  InMatch: { label: "Watching", variant: "secondary" },
+  NoWindow: { label: "Waiting for the game", variant: "secondary" },
+  PermissionRequired: { label: "Permission needed", variant: "destructive" },
+  Results: { label: "Ready to save", variant: "default" },
+  Saved: { label: "Saved", variant: "default" },
 };
 
 const HANDLES: Record<string, HandleLook> = {
-  Dismissed: { label: "Save Battle Log", pulse: false, variant: "brand" },
-  Results: { label: "Save Battle Log", pulse: true, variant: "brand" },
-  Saved: { label: "✓ Saved", pulse: false, variant: "positive" },
+  Dismissed: { label: "Save Battle Log", pulse: false, variant: "default" },
+  Results: { label: "Save Battle Log", pulse: true, variant: "default" },
+  Saved: { label: "✓ Saved", pulse: false, variant: "default" },
 };
 
 const QUIET_HANDLE: HandleLook = { label: "Battle Log", pulse: false, variant: "outline" };
@@ -32,7 +33,7 @@ const RESULTS_STATES = new Set(["Dismissed", "Results", "Saved"]);
 
 /** The header status chip for an overlay state. */
 export function chipForState(state: string): StateLabel {
-  return Object.hasOwn(CHIPS, state) ? CHIPS[state] : { label: state, tone: "secondary" };
+  return Object.hasOwn(CHIPS, state) ? CHIPS[state] : { label: state, variant: "secondary" };
 }
 
 /** How the drawer handle looks in an overlay state. */

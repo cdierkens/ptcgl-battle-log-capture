@@ -1,8 +1,9 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "@pokedojo/ui/src/globals.css";
+import "./styles/globals.css";
 
+import { followSystemColorScheme } from "./lib/color-scheme";
 import { MainWindow } from "./MainWindow";
 import { CaptureDrawer } from "./overlay/CaptureDrawer";
 import { ContinueShield } from "./overlay/ContinueShield";
@@ -17,6 +18,8 @@ function rootFor(label: string): ReactNode {
       return <MainWindow />;
   }
 }
+
+followSystemColorScheme(document.documentElement, window.matchMedia("(prefers-color-scheme: dark)"));
 
 const label = getCurrentWebviewWindow().label;
 if (label !== "main") {

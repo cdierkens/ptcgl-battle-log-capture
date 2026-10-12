@@ -1,4 +1,5 @@
-import { Callout, PageSpinner } from "@pokedojo/ui";
+import { PageSpinner } from "@/components/PageSpinner";
+import { StatusAlert } from "@/components/StatusAlert";
 import { useEffect, useState } from "react";
 
 import { Hub } from "./components/Hub";
@@ -17,7 +18,7 @@ export function MainWindow() {
       .catch((err: unknown) => setError(String(err)));
   }, []);
 
-  if (error !== null) return <Callout className="m-4" variant="critical">{error}</Callout>;
+  if (error !== null) return <StatusAlert className="m-4" tone="critical">{error}</StatusAlert>;
   if (firstRun === null) return <PageSpinner />;
   if (firstRun) return <SetupFlow onDone={() => setFirstRun(false)} />;
   return (

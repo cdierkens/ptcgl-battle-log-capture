@@ -1,4 +1,5 @@
-import { Button, Callout } from "@pokedojo/ui";
+import { LoadingButton } from "@/components/LoadingButton";
+import { StatusAlert } from "@/components/StatusAlert";
 import { useState } from "react";
 
 import { dismissShield } from "../lib/tauri";
@@ -15,15 +16,15 @@ export function ContinueShield() {
   };
 
   return (
-    <div className="flex h-screen w-screen items-center justify-between gap-2 rounded-md border border-border bg-surface-raised px-3">
+    <div className="flex h-screen w-screen items-center justify-between gap-2 rounded-md border border-border bg-muted px-3">
       {error !== null ? (
-        <Callout variant="critical">{error}</Callout>
+        <StatusAlert tone="critical">{error}</StatusAlert>
       ) : (
-        <p className="text-xs font-semibold text-content-primary">Save your Battle Log first</p>
+        <p className="text-xs font-semibold text-foreground">Save your Battle Log first</p>
       )}
-      <Button isLoading={skipping} onClick={skip} size="sm" variant="ghost">
+      <LoadingButton loading={skipping} onClick={skip} size="sm" variant="ghost">
         Continue without saving
-      </Button>
+      </LoadingButton>
     </div>
   );
 }

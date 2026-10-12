@@ -1,4 +1,8 @@
-import { Button, Callout, Field, Spinner, Textarea } from "@pokedojo/ui";
+import { LoadingButton } from "@/components/LoadingButton";
+import { StatusAlert } from "@/components/StatusAlert";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import type { OverlayStateView } from "../lib/use-overlay-state";
@@ -28,7 +32,7 @@ export function MatchCard({ clipboardOn, focusPaste, latestFileName, overlay, pl
   }, [overlay.state]);
 
   return (
-    <section aria-label="This match" className="border-b border-border bg-surface-raised p-4">
+    <section aria-label="This match" className="border-b border-border bg-muted p-4">
       {overlay.state === "Saved" ? (
         <SavedLine autosaved={overlay.autosaved} path={savedPath} playerName={playerName} />
       ) : (
@@ -79,17 +83,10 @@ function PasteForm({
       }}
     >
       {clipboardOn ? <SavingLine /> : null}
-      <Field
-        description={
-          clipboardOn
-            ? "We'll save it as soon as you Export. You can also paste it here (⌘V)."
-            : "Then paste it here (⌘V) and press Save (⌘↵)."
-        }
-        error={model.error}
-        htmlFor={TEXTAREA_ID}
-        label="In the game: Battle Log → Export"
-      >
+      <Field data-invalid={model.error !== null || undefined}>
+        <FieldLabel htmlFor={TEXTAREA_ID}>In the game: Battle Log → Export</FieldLabel>
         <Textarea
+          aria-invalid={model.error !== null}
           className="h-24 font-mono text-xs"
           disabled={model.submitting}
           id={TEXTAREA_ID}
@@ -104,10 +101,16 @@ function PasteForm({
           ref={textarea}
           value={model.text}
         />
+        <FieldDescription>
+          {clipboardOn
+            ? "We'll save it as soon as you Export. You can also paste it here (⌘V)."
+            : "Then paste it here (⌘V) and press Save (⌘↵)."}
+        </FieldDescription>
+        <FieldError>{model.error}</FieldError>
       </Field>
-      <Button isLoading={model.submitting} size="sm" type="submit">
+      <LoadingButton loading={model.submitting} size="sm" type="submit">
         Save Battle Log
-      </Button>
+      </LoadingButton>
     </form>
   );
 }
@@ -140,12 +143,12 @@ function SavedLine({ autosaved, path, playerName }: { autosaved: boolean; path: 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-content-primary" role="status">
+        <p className="text-sm font-semibold text-foreground" role="status">
           {parts.join(" · ")}
         </p>
       </div>
-      {autosaved ? <p className="text-xs text-content-subtle">Saved from the clipboard.</p> : null}
-      {error !== null ? <Callout variant="critical">{error}</Callout> : null}
+      {autosaved ? <p className="text-xs text-muted-foreground">Saved from the clipboard.</p> : null}
+      {error !== null ? <StatusAlert tone="critical">{error}</StatusAlert> : null}
     </div>
   );
 }
@@ -159,8 +162,8 @@ function SavedLine({ autosaved, path, playerName }: { autosaved: boolean; path: 
  */
 function SavingLine() {
   return (
-    <p className="flex items-center gap-2 text-xs text-content-subtle" role="status">
-      <Spinner label="" size="sm" />
+    <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+      <Spinner aria-hidden className="size-3" role={undefined} />
       Saving your Battle Log as soon as you Export…
     </p>
   );

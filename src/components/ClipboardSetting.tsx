@@ -1,4 +1,6 @@
-import { Callout, Switch } from "@pokedojo/ui";
+import { StatusAlert } from "@/components/StatusAlert";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 
 import type { SettingsView } from "../lib/use-settings";
@@ -40,28 +42,30 @@ export function ClipboardSetting({ settings }: { settings: SettingsView }) {
 
   return (
     <div className="space-y-2">
-      <Switch
-        isDisabled={settings.settings === null || settings.saving || requesting}
-        isSelected={enabled}
-        onChange={toggle}
-      >
-        Save Battle Logs from the clipboard automatically
-      </Switch>
-      <p className="text-xs text-content-subtle">{PRIVACY_NOTE}</p>
-      {requesting ? <p className="text-xs text-content-secondary">Waiting for macOS to allow paste access…</p> : null}
+      <Field orientation="horizontal">
+        <Switch
+          checked={enabled}
+          disabled={settings.settings === null || settings.saving || requesting}
+          id="clipboard-autosave"
+          onCheckedChange={toggle}
+        />
+        <FieldLabel htmlFor="clipboard-autosave">Save Battle Logs from the clipboard automatically</FieldLabel>
+      </Field>
+      <p className="text-xs text-muted-foreground">{PRIVACY_NOTE}</p>
+      {requesting ? <p className="text-xs text-muted-foreground">Waiting for macOS to allow paste access…</p> : null}
       {access === "denied" ? (
-        <Callout variant="critical">
+        <StatusAlert tone="critical">
           Clipboard access is denied. Allow it in System Settings → Privacy &amp; Security → Paste from Other Apps,
           then turn this on again. Pasting with ⌘V still works.
-        </Callout>
+        </StatusAlert>
       ) : null}
       {enabled && access === "ask" ? (
-        <Callout variant="caution">
+        <StatusAlert tone="caution">
           macOS will ask before each save. Choose Always Allow in System Settings → Privacy &amp; Security → Paste
           from Other Apps to save without the prompt.
-        </Callout>
+        </StatusAlert>
       ) : null}
-      {error !== null ? <Callout variant="critical">{error}</Callout> : null}
+      {error !== null ? <StatusAlert tone="critical">{error}</StatusAlert> : null}
     </div>
   );
 }

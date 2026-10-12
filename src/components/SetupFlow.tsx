@@ -1,4 +1,9 @@
-import { Button, Callout, Field, Input, PageSpinner } from "@pokedojo/ui";
+import { LoadingButton } from "@/components/LoadingButton";
+import { PageSpinner } from "@/components/PageSpinner";
+import { StatusAlert } from "@/components/StatusAlert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { useState } from "react";
 
 import { openScreenRecordingSettings, relaunchApp } from "../lib/tauri";
@@ -17,14 +22,14 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
   const next = () => setStep(STEPS[Math.min(index + 1, STEPS.length - 1)]);
 
   return (
-    <main className="mx-auto flex h-screen max-w-md flex-col justify-center gap-6 bg-background p-6 text-content-primary">
+    <main className="mx-auto flex h-screen max-w-md flex-col justify-center gap-6 bg-background p-6 text-foreground">
       <header className="space-y-1">
-        <p className="text-xs text-content-subtle">
+        <p className="text-xs text-muted-foreground">
           {step === "done" ? "All set" : `Step ${index + 1} of ${STEPS.length - 1}`}
         </p>
         <h1 className="text-lg font-semibold">Set up Battle Log Capture</h1>
       </header>
-      {settings.error !== null ? <Callout variant="critical">{settings.error}</Callout> : null}
+      {settings.error !== null ? <StatusAlert tone="critical">{settings.error}</StatusAlert> : null}
       {step === "screen" ? <ScreenStep onNext={next} /> : null}
       {step === "name" ? <NameStep onNext={next} settings={settings} /> : null}
       {step === "clipboard" ? (
@@ -35,7 +40,7 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
       ) : null}
       {step === "done" ? (
         <section className="space-y-4">
-          <p className="text-sm text-content-secondary">
+          <p className="text-sm text-muted-foreground">
             You&apos;re set. Start a match — we&apos;ll show up on the results screen.
           </p>
           <Button onClick={onDone}>Open Battle Log Capture</Button>
@@ -71,17 +76,15 @@ function NameStep({ onNext, settings }: { onNext: () => void; settings: ReturnTy
         save();
       }}
     >
-      <Field
-        description="As shown in PTCG Live. Used to tell your wins from losses."
-        error={error}
-        htmlFor="setup-player-name"
-        label="Player name"
-      >
-        <Input autoFocus id="setup-player-name" onChange={(event) => setName(event.target.value)} value={name} />
+      <Field data-invalid={error !== null || undefined}>
+        <FieldLabel htmlFor="setup-player-name">Player name</FieldLabel>
+        <Input aria-invalid={error !== null} autoFocus id="setup-player-name" onChange={(event) => setName(event.target.value)} value={name} />
+        <FieldDescription>As shown in PTCG Live. Used to tell your wins from losses.</FieldDescription>
+        <FieldError>{error}</FieldError>
       </Field>
-      <Button isLoading={settings.saving} type="submit">
+      <LoadingButton loading={settings.saving} type="submit">
         Continue
-      </Button>
+      </LoadingButton>
     </form>
   );
 }
@@ -95,9 +98,9 @@ function ScreenStep({ onNext }: { onNext: () => void }) {
   if (state !== "PermissionRequired") {
     return (
       <section className="space-y-4">
-        <Callout title="Screen Recording allowed" variant="positive">
+        <StatusAlert title="Screen Recording allowed" tone="positive">
           The app can spot the results screen.
-        </Callout>
+        </StatusAlert>
         <Button onClick={onNext}>Continue</Button>
       </section>
     );
@@ -105,11 +108,11 @@ function ScreenStep({ onNext }: { onNext: () => void }) {
 
   return (
     <section className="space-y-4">
-      <p className="text-sm text-content-secondary">
+      <p className="text-sm text-muted-foreground">
         Battle Log Capture looks at the game window to spot the results screen. Turn it on in System Settings → Privacy
         &amp; Security → Screen Recording, then quit and reopen.
       </p>
-      {error !== null ? <Callout variant="critical">{error}</Callout> : null}
+      {error !== null ? <StatusAlert tone="critical">{error}</StatusAlert> : null}
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => void openScreenRecordingSettings().catch((err: unknown) => setError(String(err)))}>
           Open System Settings

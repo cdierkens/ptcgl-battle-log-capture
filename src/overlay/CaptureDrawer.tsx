@@ -1,4 +1,6 @@
-import { Button, Callout, cn } from "@pokedojo/ui";
+import { StatusAlert } from "@/components/StatusAlert";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 
 import { Hub } from "../components/Hub";
@@ -99,9 +101,8 @@ export function CaptureDrawer() {
         // The click that opened the drawer must not land on whatever renders under the cursor.
         shown ? "translate-x-0" : "pointer-events-none -translate-x-full",
       )}
-
     >
-      {resizeError !== null ? <Callout variant="critical">{resizeError}</Callout> : null}
+      {resizeError !== null ? <StatusAlert tone="critical">{resizeError}</StatusAlert> : null}
       <div className="min-h-0 flex-1">
         <Hub
           focusPaste={focusPaste && isResultsState(state)}

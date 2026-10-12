@@ -4,16 +4,16 @@ import { chipForState, handleForState, historyText, isResultsState, logSavedStat
 
 describe("chipForState", () => {
   it("maps overlay states to the header chip", () => {
-    expect(chipForState("NoWindow")).toEqual({ label: "Waiting for the game", tone: "secondary" });
-    expect(chipForState("InMatch")).toEqual({ label: "Watching", tone: "info" });
-    expect(chipForState("Results")).toEqual({ label: "Ready to save", tone: "brand" });
-    expect(chipForState("Dismissed")).toEqual({ label: "Ready to save", tone: "brand" });
-    expect(chipForState("Saved")).toEqual({ label: "Saved", tone: "positive" });
-    expect(chipForState("PermissionRequired")).toEqual({ label: "Permission needed", tone: "critical" });
+    expect(chipForState("NoWindow")).toEqual({ label: "Waiting for the game", variant: "secondary" });
+    expect(chipForState("InMatch")).toEqual({ label: "Watching", variant: "secondary" });
+    expect(chipForState("Results")).toEqual({ label: "Ready to save", variant: "default" });
+    expect(chipForState("Dismissed")).toEqual({ label: "Ready to save", variant: "default" });
+    expect(chipForState("Saved")).toEqual({ label: "Saved", variant: "default" });
+    expect(chipForState("PermissionRequired")).toEqual({ label: "Permission needed", variant: "destructive" });
   });
   it("falls back for unknown and prototype keys", () => {
     expect(chipForState("SomethingNew").label).toBe("SomethingNew");
-    expect(chipForState("toString").tone).toBe("secondary");
+    expect(chipForState("toString").variant).toBe("secondary");
   });
 });
 
@@ -22,11 +22,11 @@ describe("handleForState", () => {
     expect(handleForState("InMatch")).toEqual({ label: "Battle Log", pulse: false, variant: "outline" });
   });
   it("asks to save on results, pulsing only when the shield is up", () => {
-    expect(handleForState("Results")).toEqual({ label: "Save Battle Log", pulse: true, variant: "brand" });
-    expect(handleForState("Dismissed")).toEqual({ label: "Save Battle Log", pulse: false, variant: "brand" });
+    expect(handleForState("Results")).toEqual({ label: "Save Battle Log", pulse: true, variant: "default" });
+    expect(handleForState("Dismissed")).toEqual({ label: "Save Battle Log", pulse: false, variant: "default" });
   });
   it("confirms a save with text, not colour alone", () => {
-    expect(handleForState("Saved")).toEqual({ label: "✓ Saved", pulse: false, variant: "positive" });
+    expect(handleForState("Saved")).toEqual({ label: "✓ Saved", pulse: false, variant: "default" });
   });
 });
 

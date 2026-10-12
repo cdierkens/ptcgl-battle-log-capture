@@ -1,12 +1,35 @@
-import { Badge, Button, Callout, ConfirmDialog, EmptyState, Menu, MenuItem, Skeleton } from "@pokedojo/ui";
-import { useState } from "react";
+import { MoreHorizontal } from "lucide-react";
+import { type ReactNode, useState } from "react";
+
+import { LoadingButton } from "@/components/LoadingButton";
+import { StatusAlert } from "@/components/StatusAlert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import type { Match, MatchesView } from "../lib/use-matches";
 
 import { matchRow, type MatchRow } from "../lib/match-row";
 import { deleteLog, revealLog } from "../lib/tauri";
 
-const RESULT_TONE = { "—": "secondary", L: "critical", W: "positive" } as const;
+const RESULT_VARIANT = { "—": "secondary", L: "destructive", W: "default" } as const;
 
 export function MatchList({ matches, playerName }: { matches: MatchesView; playerName: string }) {
   const [selected, setSelected] = useState<null | string>(null);
@@ -22,17 +45,17 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
         <Skeleton className="h-10 w-full" />
       </div>
     ) : (
-      <Callout
+      <StatusAlert
         actions={
-          <Button isLoading={matches.refreshing} onClick={matches.refresh} size="sm" variant="outline">
+          <LoadingButton loading={matches.refreshing} onClick={matches.refresh} size="sm" variant="outline">
             Try again
-          </Button>
+          </LoadingButton>
         }
         className="m-4"
-        variant="critical"
+        tone="critical"
       >
         Couldn't load saved Battle Logs: {matches.error}
-      </Callout>
+      </StatusAlert>
     );
   }
 
@@ -63,27 +86,42 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
   };
 
   const actions = (match: Match) => (
-    <Menu label="Battle Log actions">
-      <MenuItem onAction={() => copy(match)}>Copy Battle Log</MenuItem>
-      <MenuItem onAction={() => reveal(match)}>Show in Finder</MenuItem>
-      <MenuItem onAction={() => setPendingDelete(match)} tone="critical">
-        Delete…
-      </MenuItem>
-    </Menu>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button aria-label="Battle Log actions" size="icon-sm" variant="ghost">
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => copy(match)}>Copy Battle Log</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => reveal(match)}>Show in Finder</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setPendingDelete(match)} variant="destructive">
+          Delete…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const dialog = (
-    <ConfirmDialog
-      confirmLabel="Move to Trash"
-      description="The file moves to the Trash, so you can put it back from there."
-      destructive
-      onConfirm={confirmDelete}
+    <AlertDialog
       onOpenChange={(open) => {
         if (!open) setPendingDelete(null);
       }}
       open={pendingDelete !== null}
-      title="Delete this Battle Log?"
-    />
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this Battle Log?</AlertDialogTitle>
+          <AlertDialogDescription>The file moves to the Trash, so you can put it back from there.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmDelete} variant="destructive">
+            Move to Trash
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 
   const detail = matches.matches.find((match) => match.log.fileName === selected);
@@ -91,7 +129,7 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
     return (
       <>
         <MatchDetail actions={actions(detail)} match={detail} onBack={() => setSelected(null)} row={matchRow(detail.log, detail.analysis, now)} />
-        {actionError !== null ? <Callout className="m-4" variant="critical">{actionError}</Callout> : null}
+        {actionError !== null ? <StatusAlert className="m-4" tone="critical">{actionError}</StatusAlert> : null}
         {dialog}
       </>
     );
@@ -99,11 +137,14 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
 
   if (matches.matches.length === 0) {
     return (
-      <EmptyState
-        className="m-4"
-        description="After a match, open Battle Log → Export in the game. Your saved matches show up here."
-        title="No Battle Logs yet"
-      />
+      <Empty className="m-4">
+        <EmptyHeader>
+          <EmptyTitle>No Battle Logs yet</EmptyTitle>
+          <EmptyDescription>
+            After a match, open Battle Log → Export in the game. Your saved matches show up here.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -111,10 +152,10 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
   return (
     <div className="space-y-3 p-4">
       {nameMissing ? (
-        <Callout variant="info">Add your player name in Settings to see wins and losses.</Callout>
+        <StatusAlert tone="info">Add your player name in Settings to see wins and losses.</StatusAlert>
       ) : null}
-      {actionError !== null ? <Callout variant="critical">{actionError}</Callout> : null}
-      {matches.error !== null ? <Callout variant="critical">{matches.error}</Callout> : null}
+      {actionError !== null ? <StatusAlert tone="critical">{actionError}</StatusAlert> : null}
+      {matches.error !== null ? <StatusAlert tone="critical">{matches.error}</StatusAlert> : null}
       <ul className="divide-y divide-border rounded-md border border-border">
         {matches.matches.map((match) => {
           const row = matchRow(match.log, match.analysis, now);
@@ -137,7 +178,7 @@ export function MatchList({ matches, playerName }: { matches: MatchesView; playe
   );
 }
 
-function MatchDetail({ actions, match, onBack, row }: { actions: React.ReactNode; match: Match; onBack: () => void; row: MatchRow }) {
+function MatchDetail({ actions, match, onBack, row }: { actions: ReactNode; match: Match; onBack: () => void; row: MatchRow }) {
   const [showRaw, setShowRaw] = useState(false);
   const summary = match.analysis?.summary;
   return (
@@ -152,24 +193,24 @@ function MatchDetail({ actions, match, onBack, row }: { actions: React.ReactNode
         <RowContent row={row} />
       </div>
       {summary === undefined ? (
-        <p className="text-sm text-content-secondary">This Battle Log couldn't be summarized.</p>
+        <p className="text-sm text-muted-foreground">This Battle Log couldn't be summarized.</p>
       ) : (
         <dl className="grid grid-cols-2 gap-2 text-sm">
-          <dt className="text-content-subtle">Prizes taken</dt>
-          <dd className="text-content-primary">{row.prizes}</dd>
-          <dt className="text-content-subtle">Knockouts</dt>
-          <dd className="text-content-primary">
+          <dt className="text-muted-foreground">Prizes taken</dt>
+          <dd className="text-foreground">{row.prizes}</dd>
+          <dt className="text-muted-foreground">Knockouts</dt>
+          <dd className="text-foreground">
             {summary.knockoutsByPlayer.self}–{summary.knockoutsByPlayer.opponent}
           </dd>
-          <dt className="text-content-subtle">Turns</dt>
-          <dd className="text-content-primary">{summary.turnCount}</dd>
+          <dt className="text-muted-foreground">Turns</dt>
+          <dd className="text-foreground">{summary.turnCount}</dd>
         </dl>
       )}
       <Button aria-expanded={showRaw} onClick={() => setShowRaw((open) => !open)} size="sm" variant="outline">
         {showRaw ? "Hide raw log" : "View raw log"}
       </Button>
       {showRaw ? (
-        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-md border border-border p-2 font-mono text-xs text-content-secondary">
+        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-md border border-border p-2 font-mono text-xs text-muted-foreground">
           {match.raw ?? "Loading…"}
         </pre>
       ) : null}
@@ -180,12 +221,12 @@ function MatchDetail({ actions, match, onBack, row }: { actions: React.ReactNode
 function RowContent({ row }: { row: MatchRow }) {
   return (
     <>
-      <Badge className="w-7 shrink-0 justify-center" variant={row.result === null ? "outline" : RESULT_TONE[row.result]}>
+      <Badge className="w-7 shrink-0 justify-center" variant={row.result === null ? "outline" : RESULT_VARIANT[row.result]}>
         {row.result ?? "?"}
       </Badge>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-content-primary">{row.title}</span>
-        <span className="block text-xs text-content-subtle">
+        <span className="block truncate text-sm font-medium text-foreground">{row.title}</span>
+        <span className="block text-xs text-muted-foreground">
           {row.prizes === null ? row.when : `Prizes ${row.prizes} · ${row.when}`}
         </span>
       </span>

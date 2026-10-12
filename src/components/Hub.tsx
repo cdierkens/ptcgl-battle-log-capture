@@ -1,4 +1,7 @@
-import { Badge, Button, Callout, Tab, TabList, TabPanel, Tabs } from "@pokedojo/ui";
+import { StatusAlert } from "@/components/StatusAlert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import type { CaptureStatusEvent } from "../lib/tauri";
 
@@ -30,11 +33,11 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
   const errors = [overlay.error, settings.error, historyError].filter((e): e is string => e !== null);
 
   return (
-    <div className="flex h-full flex-col bg-background text-content-primary">
+    <div className="flex h-full flex-col bg-background text-foreground">
       <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <h1 className="text-sm font-semibold">Battle Log Capture</h1>
-          {chip !== null ? <Badge variant={chip.tone}>{chip.label}</Badge> : null}
+          {chip !== null ? <Badge variant={chip.variant}>{chip.label}</Badge> : null}
         </div>
         {onClose !== undefined ? (
           <Button aria-label="Close drawer" onClick={onClose} size="sm" variant="ghost">
@@ -43,9 +46,9 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
         ) : null}
       </header>
       {errors.map((message) => (
-        <Callout className="m-3" key={message} variant="critical">
+        <StatusAlert className="m-3" key={message} tone="critical">
           {message}
-        </Callout>
+        </StatusAlert>
       ))}
       {isResultsState(overlay.state) ? (
         <MatchCard
@@ -56,29 +59,29 @@ export function Hub({ focusPaste = false, history, historyError = null, onClose 
           playerName={playerName}
         />
       ) : null}
-      <Tabs className="flex min-h-0 flex-1 flex-col" defaultSelectedKey="matches">
-        <TabList aria-label="Sections" className="px-4">
-          <Tab id="matches">Matches</Tab>
-          <Tab id="settings">Settings</Tab>
-          <Tab id="help">
+      <Tabs className="flex min-h-0 flex-1 flex-col" defaultValue="matches">
+        <TabsList aria-label="Sections" className="mx-4 mt-2" variant="line">
+          <TabsTrigger value="matches">Matches</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="help">
             Help
             {attention ? (
               <>
-                <span aria-hidden className="ml-1 inline-block size-2 rounded-full bg-status-critical" />
+                <span aria-hidden className="ml-1 inline-block size-2 rounded-full bg-destructive" />
                 <span className="sr-only">(needs attention)</span>
               </>
             ) : null}
-          </Tab>
-        </TabList>
-        <TabPanel id="matches">
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent className="min-h-0 overflow-y-auto" value="matches">
           <MatchList matches={matches} playerName={playerName} />
-        </TabPanel>
-        <TabPanel id="settings">
+        </TabsContent>
+        <TabsContent className="min-h-0 overflow-y-auto" value="settings">
           <SettingsTab settings={settings} />
-        </TabPanel>
-        <TabPanel id="help">
+        </TabsContent>
+        <TabsContent className="min-h-0 overflow-y-auto" value="help">
           <HelpTab history={history} state={overlay.state} />
-        </TabPanel>
+        </TabsContent>
       </Tabs>
     </div>
   );

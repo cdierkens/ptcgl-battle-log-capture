@@ -1,4 +1,9 @@
-import { Button, Callout, Field, Input, Switch } from "@pokedojo/ui";
+import { LoadingButton } from "@/components/LoadingButton";
+import { StatusAlert } from "@/components/StatusAlert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 
 import type { SettingsView } from "../lib/use-settings";
@@ -19,11 +24,11 @@ export function SettingsTab({ settings }: { settings: SettingsView }) {
 
   if (current === null) {
     return settings.error === null ? (
-      <p className="p-4 text-sm text-content-secondary">Loading settings…</p>
+      <p className="p-4 text-sm text-muted-foreground">Loading settings…</p>
     ) : (
-      <Callout className="m-4" variant="critical">
+      <StatusAlert className="m-4" tone="critical">
         {settings.error}
-      </Callout>
+      </StatusAlert>
     );
   }
 
@@ -49,14 +54,11 @@ export function SettingsTab({ settings }: { settings: SettingsView }) {
 
   return (
     <div className="space-y-5 p-4">
-      {settings.error !== null ? <Callout variant="critical">{settings.error}</Callout> : null}
-      {actionError !== null ? <Callout variant="critical">{actionError}</Callout> : null}
+      {settings.error !== null ? <StatusAlert tone="critical">{settings.error}</StatusAlert> : null}
+      {actionError !== null ? <StatusAlert tone="critical">{actionError}</StatusAlert> : null}
 
-      <Field
-        description={nameSaved ? "Saved." : "As shown in PTCG Live. Used to tell your wins from losses."}
-        htmlFor="player-name"
-        label="Player name"
-      >
+      <Field>
+        <FieldLabel htmlFor="player-name">Player name</FieldLabel>
         <Input
           id="player-name"
           onBlur={commitName}
@@ -69,32 +71,34 @@ export function SettingsTab({ settings }: { settings: SettingsView }) {
           }}
           value={name}
         />
+        <FieldDescription>{nameSaved ? "Saved." : "As shown in PTCG Live. Used to tell your wins from losses."}</FieldDescription>
       </Field>
 
-      <Field label="Save folder">
-        <p className="break-all font-mono text-xs text-content-secondary">{current.output_dir}</p>
+      <Field>
+        <FieldTitle>Save folder</FieldTitle>
+        <p className="break-all font-mono text-xs text-muted-foreground">{current.output_dir}</p>
         <div className="flex gap-2 pt-1">
-          <Button isLoading={picking} onClick={pickFolder} size="sm" variant="outline">
+          <LoadingButton loading={picking} onClick={pickFolder} size="sm" variant="outline">
             Change…
-          </Button>
+          </LoadingButton>
           <Button onClick={showFolder} size="sm" variant="ghost">
             Show in Finder
           </Button>
         </div>
       </Field>
 
-      <div className="space-y-1">
-        <Switch
-          isDisabled={settings.saving}
-          isSelected={current.prompt_after_match}
-          onChange={(next) => void settings.update({ prompt_after_match: next })}
-        >
-          Prompt to save after each match
-        </Switch>
-        <p className="text-xs text-content-subtle">
-          Opens this drawer on the results screen and covers Continue until the Battle Log is saved.
-        </p>
-      </div>
+      <Field>
+        <Field orientation="horizontal">
+          <Switch
+            checked={current.prompt_after_match}
+            disabled={settings.saving}
+            id="prompt-after-match"
+            onCheckedChange={(next) => void settings.update({ prompt_after_match: next })}
+          />
+          <FieldLabel htmlFor="prompt-after-match">Prompt to save after each match</FieldLabel>
+        </Field>
+        <FieldDescription>Opens this drawer on the results screen and covers Continue until the Battle Log is saved.</FieldDescription>
+      </Field>
 
       <ClipboardSetting settings={settings} />
     </div>
