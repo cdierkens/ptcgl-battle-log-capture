@@ -18,12 +18,12 @@ export default tseslint.config(
     // Classic hooks rules only; the React Compiler rules are a separate follow-up.
     plugins: { "react-hooks": reactHooks },
     rules: {
-      "react-hooks/exhaustive-deps": "error",
-      "react-hooks/rules-of-hooks": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/rules-of-hooks": "error",
     },
   },
 );

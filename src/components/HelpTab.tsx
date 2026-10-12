@@ -1,7 +1,8 @@
+import { useEffect, useState } from "react";
+
 import { CopyButton } from "@/components/CopyButton";
 import { StatusAlert } from "@/components/StatusAlert";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
 
 import { historyText } from "../lib/capture-status";
 import { relativeTime } from "../lib/match-row";

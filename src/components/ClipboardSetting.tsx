@@ -1,7 +1,8 @@
+import { useEffect, useState } from "react";
+
 import { StatusAlert } from "@/components/StatusAlert";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import { useEffect, useState } from "react";
 
 import type { SettingsView } from "../lib/use-settings";
 

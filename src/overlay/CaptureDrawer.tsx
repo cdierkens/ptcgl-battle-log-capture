@@ -1,7 +1,8 @@
+import { useEffect, useRef, useState } from "react";
+
 import { StatusAlert } from "@/components/StatusAlert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useEffect, useRef, useState } from "react";
 
 import { Hub } from "../components/Hub";
 import { nextDrawerOpen } from "../lib/capture-drawer";

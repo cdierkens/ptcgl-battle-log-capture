@@ -1,10 +1,11 @@
+import { useState } from "react";
+
 import { LoadingButton } from "@/components/LoadingButton";
 import { PageSpinner } from "@/components/PageSpinner";
 import { StatusAlert } from "@/components/StatusAlert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
 
 import { openScreenRecordingSettings, relaunchApp } from "../lib/tauri";
 import { useOverlayState } from "../lib/use-overlay-state";

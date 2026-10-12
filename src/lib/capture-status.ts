@@ -1,3 +1,6 @@
+/** shadcn badge variants; status tones collapse onto these (ADR 0003). */
+export type BadgeVariant = "default" | "destructive" | "outline" | "secondary";
+
 export interface HandleLook {
   label: string;
   pulse: boolean;
@@ -8,9 +11,6 @@ export interface StateLabel {
   label: string;
   variant: BadgeVariant;
 }
-
-/** shadcn badge variants; status tones collapse onto these (ADR 0003). */
-export type BadgeVariant = "default" | "destructive" | "outline" | "secondary";
 
 const CHIPS: Record<string, StateLabel> = {
   Dismissed: { label: "Ready to save", variant: "default" },

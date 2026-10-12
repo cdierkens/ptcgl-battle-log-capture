@@ -1,10 +1,11 @@
+import { useEffect, useState } from "react";
+
 import { LoadingButton } from "@/components/LoadingButton";
 import { StatusAlert } from "@/components/StatusAlert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { useEffect, useState } from "react";
 
 import type { SettingsView } from "../lib/use-settings";
 

@@ -1,8 +1,8 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./styles/globals.css";
 
+import "./styles/globals.css";
 import { followSystemColorScheme } from "./lib/color-scheme";
 import { MainWindow } from "./MainWindow";
 import { CaptureDrawer } from "./overlay/CaptureDrawer";
