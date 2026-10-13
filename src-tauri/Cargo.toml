@@ -38,3 +38,7 @@ objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSWindow", "NSWorkspace"] }
 keyring = { version = "3.6.3", features = ["apple-native"] }
+
+# xcap copies and swizzles each frame per pixel; unoptimised that makes dev polls ~10x slower.
+[profile.dev.package."*"]
+opt-level = 3
