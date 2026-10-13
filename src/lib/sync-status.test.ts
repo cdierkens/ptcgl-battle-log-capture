@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Destination, SyncStatus } from "./tauri";
 
-import { attentionReason, deliveriesFor, matchSyncState, syncActions, syncNeedsAttention } from "./sync-status";
+import { attentionReason, matchSyncs, syncActions, syncNeedsAttention } from "./sync-status";
 
 function destination(id: string, name: string, enabled = true): Destination {
   return { enabled, headers: {}, id, name, token_url: null, url: `https://${id}.example/api` };
@@ -17,34 +17,6 @@ function status(deliveries: [string, string, "failed" | "pending" | "synced"][],
     deliveries: deliveries.map(([log, destination, state]) => ({ destination, lastError: null, log, state })),
   };
 }
-
-describe("matchSyncState", () => {
-  it("is null for a match never queued", () => {
-    expect(matchSyncState(status([]), "a.txt", [dojo])).toBeNull();
-    expect(matchSyncState(null, "a.txt", [dojo])).toBeNull();
-  });
-
-  it("lets a failure win, then pending", () => {
-    const s = status([
-      ["a.txt", "dojo", "synced"],
-      ["a.txt", "court", "failed"],
-      ["b.txt", "dojo", "synced"],
-      ["b.txt", "court", "pending"],
-      ["c.txt", "dojo", "synced"],
-    ]);
-    expect(matchSyncState(s, "a.txt", [dojo, court])).toBe("failed");
-    expect(matchSyncState(s, "b.txt", [dojo, court])).toBe("pending");
-    expect(matchSyncState(s, "c.txt", [dojo, court])).toBe("synced");
-  });
-
-  it("ignores destinations no longer configured", () => {
-    const s = status([
-      ["a.txt", "dojo", "synced"],
-      ["a.txt", "gone", "failed"],
-    ]);
-    expect(matchSyncState(s, "a.txt", [dojo])).toBe("synced");
-  });
-});
 
 describe("syncActions", () => {
   it("offers each enabled destination, including for an older match", () => {
@@ -75,13 +47,33 @@ describe("attention", () => {
   });
 });
 
-describe("deliveriesFor", () => {
-  it("keeps only this match's deliveries to configured destinations", () => {
+describe("matchSyncs", () => {
+  const states = (s: null | SyncStatus, log: string, destinations: Destination[]) =>
+    matchSyncs(s, log, destinations).map((m) => [m.destination.id, m.state]);
+
+  it("covers every configured destination on every match, in Settings order", () => {
+    const off = destination("off", "Off", false);
     const s = status([
-      ["a.txt", "dojo", "synced"],
-      ["a.txt", "gone", "failed"],
+      ["a.txt", "court", "failed"],
+      ["a.txt", "gone", "synced"],
       ["b.txt", "dojo", "pending"],
     ]);
-    expect(deliveriesFor(s, "a.txt", [dojo]).map((d) => d.destination)).toEqual(["dojo"]);
+    expect(states(s, "a.txt", [dojo, court, off])).toEqual([
+      ["dojo", "unsynced"],
+      ["court", "failed"],
+      ["off", "unsynced"],
+    ]);
+  });
+
+  it("reads unsynced when nothing was ever queued", () => {
+    expect(states(null, "a.txt", [dojo])).toEqual([["dojo", "unsynced"]]);
+  });
+
+  it("carries the delivery's last error", () => {
+    const s: SyncStatus = {
+      attention: [],
+      deliveries: [{ destination: "dojo", lastError: "HTTP 503", log: "a.txt", state: "pending" }],
+    };
+    expect(matchSyncs(s, "a.txt", [dojo])[0]?.lastError).toBe("HTTP 503");
   });
 });
