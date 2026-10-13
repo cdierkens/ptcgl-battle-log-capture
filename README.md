@@ -37,7 +37,10 @@ prints into Settings → Sync. Only debug builds accept its `http://localhost` U
 ## Where things live
 
 - **Saved logs:** `~/.ptcgl-battle-logs` by default. Change it in Settings.
-- **App diagnostic log:** `~/.ptcgl-battle-logs/logs/capture.log.<date>`.
+- **App diagnostic log:** `~/.ptcgl-battle-logs/logs/capture.log.<date>`. For
+  a trace of what each poll saw (frame captured, tab seen, active and game pid,
+  focus), logged when it changes, run with
+  `RUST_LOG=info,ptcgl_battle_log_capture_lib::engine=debug`.
 - **Settings:** the OS app-config folder, e.g.
   `~/Library/Application Support/dev.dierkens.ptcgl-tracker/settings.json`.
   Delete it to rerun first-run setup.
