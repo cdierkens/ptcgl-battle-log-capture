@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::clipboard::{ClipboardAccess, ClipboardError, ClipboardProbe, ClipboardWatch};
 use crate::detection::{OcrResultsProbe, ResultsChange, ResultsProbe, ResultsTracker};
@@ -63,6 +63,7 @@ pub struct EngineCtx {
     /// Game window bounds at the previous poll; a change means it is being dragged or resized.
     last_bounds: Option<(i32, i32, u32, u32)>,
     own_pid: u32,
+    trace: Option<PollTrace>,
     polls: u32,
     /// `prompt_after_match`: the shield (and its Continue lookup) only run when on.
     prompts: bool,
@@ -99,6 +100,7 @@ impl EngineCtx {
             overlay_error: None,
             rendered_drawer: None,
             rendered_shield: None,
+            trace: None,
         }
     }
 
@@ -199,13 +201,15 @@ impl EngineCtx {
             self.apply(OverlayEvent::WindowLost);
             self.tracker.reset();
             self.last_bounds = None;
+            self.trace = None;
             self.render(None, presenter);
             return false;
         };
         let ready = self.recognizer_ready;
         self.apply(if ready { OverlayEvent::WindowFound } else { OverlayEvent::WindowFoundWarmingUp });
         // Detection keeps running while another app is active; only rendering is gated.
-        let focused = self.focus.observe(focus.active_pid(), window.pid, self.own_pid);
+        let active_pid = focus.active_pid();
+        let focused = self.focus.observe(active_pid, window.pid, self.own_pid);
         // Hide instead of chasing a dragged or resized window; show on the first stable poll.
         let bounds = (window.x, window.y, window.width, window.height);
         let settled = self.last_bounds.is_none_or(|last| last == bounds);
@@ -214,10 +218,12 @@ impl EngineCtx {
         self.game_focused = focused;
         let shown = visible.then_some(&window);
         let frame = if ready { frames.capture(&window) } else { None };
-        if let Some(frame) = frame {
+        let tab_visible = frame.as_ref().map(|frame| {
             self.polls = self.polls.wrapping_add(1);
-            let sweep = self.polls % SWEEP_EVERY == 0;
-            let tab_visible = probe.tab_visible(&frame, sweep);
+            probe.tab_visible(frame, self.polls % SWEEP_EVERY == 0)
+        });
+        self.record(PollTrace { tab_visible, active_pid, game_pid: window.pid, focused });
+        if let Some((frame, tab_visible)) = frame.zip(tab_visible) {
             // Only pay for the drawer OCR when it can matter.
             let drawer_open = !tab_visible && self.tracker.is_present() && probe.drawer_open(&frame);
             match self.tracker.observe(tab_visible, drawer_open) {
@@ -238,6 +244,20 @@ impl EngineCtx {
         }
         self.render(shown, presenter);
         true
+    }
+
+    /// Logs the poll's inputs at debug level, only when they change.
+    fn record(&mut self, trace: PollTrace) {
+        if self.trace != Some(trace) {
+            debug!(
+                tab_visible = ?trace.tab_visible,
+                active_pid = ?trace.active_pid,
+                game_pid = ?trace.game_pid,
+                focused = trace.focused,
+                "poll inputs changed"
+            );
+            self.trace = Some(trace);
+        }
     }
 
     /// Stop watching (permission missing) and hide the overlays.
@@ -285,6 +305,16 @@ impl EngineCtx {
             self.overlay_error = error;
         }
     }
+}
+
+/// What one poll saw, for diagnosing missed detections and focus gating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PollTrace {
+    /// `None` when no frame was captured.
+    tab_visible: Option<bool>,
+    active_pid: Option<u32>,
+    game_pid: Option<u32>,
+    focused: bool,
 }
 
 /// Background loop. `inbox` carries `LogSaved` / `Dismissed` from commands.
@@ -632,6 +662,41 @@ mod tests {
             OverlayState::Results { shield, .. } => Some(shield),
             _ => None,
         }
+    }
+
+    #[test]
+    fn the_trace_records_what_the_poll_saw() {
+        let (mut ctx, probe, presenter) = (ctx(), ScriptedProbe::default(), RecordingPresenter::default());
+        poll(&mut ctx, &probe, &active(OTHER_PID), &presenter);
+        assert_eq!(
+            ctx.trace,
+            Some(PollTrace {
+                tab_visible: Some(false),
+                active_pid: Some(OTHER_PID),
+                game_pid: Some(GAME_PID),
+                focused: false,
+            })
+        );
+        probe.tab.set(true);
+        poll(&mut ctx, &probe, &active(GAME_PID), &presenter);
+        let trace = ctx.trace.unwrap();
+        assert_eq!((trace.tab_visible, trace.active_pid, trace.focused), (Some(true), Some(GAME_PID), true));
+    }
+
+    #[test]
+    fn the_trace_shows_no_frame_while_warming_up() {
+        let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
+        poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &RecordingPresenter::default());
+        let trace = ctx.trace.unwrap();
+        assert_eq!((trace.tab_visible, trace.focused), (None, true));
+    }
+
+    #[test]
+    fn losing_the_window_clears_the_trace() {
+        let (mut ctx, presenter) = (ctx(), RecordingPresenter::default());
+        poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &presenter);
+        ctx.poll(&FixedWindow(None), &BlankFrames, &ScriptedProbe::default(), &active(GAME_PID), &presenter);
+        assert_eq!(ctx.trace, None);
     }
 
     #[test]

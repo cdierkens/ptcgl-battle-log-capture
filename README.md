@@ -37,7 +37,10 @@ prints into Settings → Sync. Only debug builds accept its `http://localhost` U
 ## Where things live
 
 - **Saved logs:** `~/.ptcgl-battle-logs` by default. Change it in Settings.
-- **App diagnostic log:** `~/.ptcgl-battle-logs/logs/capture.log.<date>`.
+- **App diagnostic log:** `~/.ptcgl-battle-logs/logs/capture.log.<date>`. For
+  a trace of what each poll saw (tab seen, or `None` with no frame; active and
+  game pid; focus), logged when it changes, run with
+  `RUST_LOG=info,ptcgl_battle_log_capture_lib::engine=debug`.
 - **Settings:** the OS app-config folder, e.g.
   `~/Library/Application Support/dev.dierkens.ptcgl-tracker/settings.json`.
   Delete it to rerun first-run setup.
@@ -69,16 +72,19 @@ later calls take 0.1–1 s. Every rebuild is a new binary, so right after a buil
 results detection is blind for about a minute
 ([#2](https://github.com/cdierkens/ptcgl-battle-log-capture/issues/2)).
 
-**Debug vs release.** Release is still the build to play on, but the gap is
-small. Measured after the BMP encoder landed (2560x1496 capture):
+**Debug vs release.** xcap and image build optimised even in dev
+(`[profile.dev.package.xcap]`). Without that, xcap's per-pixel copy of the
+2560x1496 capture took 145 ms in menus and up to ~1.1 s mid-match, so debug
+polls ran about a second apart. With it, capture costs about the same as in
+release (~25–80 ms). Measured after the BMP encoder landed (2560x1496 capture):
 
 | | debug | release |
 |---|---|---|
 | encode a 512x150 region | 2.21 ms | 0.12 ms |
 | region OCR | 34.1 ms | 69.5 ms |
 
-Only the encoder is meaningfully profile-sensitive, and in release it costs
-0.12 ms, about 2 ms per poll. The OCR is macOS Vision (native) and doesn't speed
+Of our own code, only the encoder is meaningfully profile-sensitive, and in
+release it costs 0.12 ms, about 2 ms per poll. The OCR is macOS Vision (native) and doesn't speed
 up with optimisation. Its per-call cost is large and varies with what's on
 screen, so debug and release land within each other's noise.
 
