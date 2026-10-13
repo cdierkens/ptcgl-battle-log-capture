@@ -72,8 +72,8 @@ later calls take 0.1–1 s. Every rebuild is a new binary, so right after a buil
 results detection is blind for about a minute
 ([#2](https://github.com/cdierkens/ptcgl-battle-log-capture/issues/2)).
 
-**Debug vs release.** Dependencies build optimised even in dev
-(`[profile.dev.package."*"]`). Without that, xcap's per-pixel copy of the
+**Debug vs release.** xcap and image build optimised even in dev
+(`[profile.dev.package.xcap]`). Without that, xcap's per-pixel copy of the
 2560x1496 capture took 145 ms in menus and up to ~1.1 s mid-match, so debug
 polls ran about a second apart. With it, capture costs about the same as in
 release (~25–80 ms). Measured after the BMP encoder landed (2560x1496 capture):
