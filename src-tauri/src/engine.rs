@@ -218,14 +218,12 @@ impl EngineCtx {
         self.game_focused = focused;
         let shown = visible.then_some(&window);
         let frame = if ready { frames.capture(&window) } else { None };
-        let mut trace =
-            PollTrace { captured: frame.is_some(), tab_visible: None, active_pid, game_pid: window.pid, focused };
-        if let Some(frame) = frame {
+        let tab_visible = frame.as_ref().map(|frame| {
             self.polls = self.polls.wrapping_add(1);
-            let sweep = self.polls % SWEEP_EVERY == 0;
-            let tab_visible = probe.tab_visible(&frame, sweep);
-            trace.tab_visible = Some(tab_visible);
-            self.record(trace);
+            probe.tab_visible(frame, self.polls % SWEEP_EVERY == 0)
+        });
+        self.record(PollTrace { tab_visible, active_pid, game_pid: window.pid, focused });
+        if let Some((frame, tab_visible)) = frame.zip(tab_visible) {
             // Only pay for the drawer OCR when it can matter.
             let drawer_open = !tab_visible && self.tracker.is_present() && probe.drawer_open(&frame);
             match self.tracker.observe(tab_visible, drawer_open) {
@@ -243,8 +241,6 @@ impl EngineCtx {
                     self.apply(OverlayEvent::ContinueLocated(shield_rect(&window, &frame, &m)));
                 }
             }
-        } else {
-            self.record(trace);
         }
         self.render(shown, presenter);
         true
@@ -254,7 +250,6 @@ impl EngineCtx {
     fn record(&mut self, trace: PollTrace) {
         if self.trace != Some(trace) {
             debug!(
-                captured = trace.captured,
                 tab_visible = ?trace.tab_visible,
                 active_pid = ?trace.active_pid,
                 game_pid = ?trace.game_pid,
@@ -315,7 +310,6 @@ impl EngineCtx {
 /// What one poll saw, for diagnosing missed detections and focus gating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PollTrace {
-    captured: bool,
     /// `None` when no frame was captured.
     tab_visible: Option<bool>,
     active_pid: Option<u32>,
@@ -677,7 +671,6 @@ mod tests {
         assert_eq!(
             ctx.trace,
             Some(PollTrace {
-                captured: true,
                 tab_visible: Some(false),
                 active_pid: Some(OTHER_PID),
                 game_pid: Some(GAME_PID),
@@ -695,7 +688,7 @@ mod tests {
         let mut ctx = EngineCtx::new(OverlayState::NoWindow, OWN_PID);
         poll(&mut ctx, &ScriptedProbe::default(), &active(GAME_PID), &RecordingPresenter::default());
         let trace = ctx.trace.unwrap();
-        assert_eq!((trace.captured, trace.tab_visible, trace.focused), (false, None, true));
+        assert_eq!((trace.tab_visible, trace.focused), (None, true));
     }
 
     #[test]
