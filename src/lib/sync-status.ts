@@ -1,5 +1,14 @@
 import type { DeliveryStatus, Destination, SyncState, SyncStatus } from "./tauri";
 
+export interface MatchSync {
+  destination: Destination;
+  lastError: null | string;
+  state: MatchSyncState;
+}
+
+/** `unsynced`: the match was never queued for that destination. */
+export type MatchSyncState = "unsynced" | SyncState;
+
 export interface SyncAction {
   destinationId: string;
   label: string;
@@ -10,21 +19,18 @@ export function attentionReason(status: null | SyncStatus, destinationId: string
   return status?.attention.find((a) => a.destination === destinationId)?.reason ?? null;
 }
 
-/** A match's deliveries to destinations still configured, in destination order. */
-export function deliveriesFor(status: null | SyncStatus, fileName: string, destinations: Destination[]): DeliveryStatus[] {
-  const ids = new Set(destinations.map((d) => d.id));
-  return (status?.deliveries ?? []).filter((d) => d.log === fileName && ids.has(d.destination));
-}
-
-/**
- * One state for a match across its destinations: any failure wins, then anything still
- * pending. `null` when it was never queued for a destination still configured.
- */
-export function matchSyncState(status: null | SyncStatus, fileName: string, destinations: Destination[]): null | SyncState {
-  const states = new Set(deliveriesFor(status, fileName, destinations).map((d) => d.state));
-  if (states.has("failed")) return "failed";
-  if (states.has("pending")) return "pending";
-  return states.has("synced") ? "synced" : null;
+/** A match's sync state for every configured destination, in Settings order. */
+export function matchSyncs(status: null | SyncStatus, fileName: string, destinations: Destination[]): MatchSync[] {
+  const deliveries = new Map<string, DeliveryStatus>();
+  for (const d of status?.deliveries ?? []) {
+    if (d.log === fileName) deliveries.set(d.destination, d);
+  }
+  return destinations.map((destination) => {
+    const delivery = deliveries.get(destination.id);
+    return delivery === undefined
+      ? { destination, lastError: null, state: "unsynced" }
+      : { destination, lastError: delivery.lastError, state: delivery.state };
+  });
 }
 
 /** The `⋯` menu items: one per enabled destination, reading Retry when that delivery failed. */

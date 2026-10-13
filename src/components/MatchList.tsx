@@ -1,4 +1,4 @@
-import { CloudAlert, CloudCheck, CloudUpload, type LucideIcon, MoreHorizontal } from "lucide-react";
+import { Cloud, CloudAlert, CloudCheck, CloudUpload, type LucideIcon, MoreHorizontal } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { LoadingButton } from "@/components/LoadingButton";
@@ -24,22 +24,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { Destination, SyncState, SyncStatus } from "../lib/tauri";
+import type { Destination, SyncStatus } from "../lib/tauri";
 import type { Match, MatchesView } from "../lib/use-matches";
 
 import { matchRow, type MatchRow } from "../lib/match-row";
-import { deliveriesFor, matchSyncState, syncActions } from "../lib/sync-status";
+import { type MatchSync, matchSyncs, type MatchSyncState, syncActions } from "../lib/sync-status";
 import { deleteLog, revealLog, syncLog } from "../lib/tauri";
 import { useNow } from "../lib/use-now";
 
 const RESULT_VARIANT = { "—": "secondary", L: "destructive", W: "default" } as const;
 
-const SYNC_LOOK: Record<SyncState, { icon: LucideIcon; label: string }> = {
+const SYNC_LOOK: Record<MatchSyncState, { icon: LucideIcon; label: string }> = {
   failed: { icon: CloudAlert, label: "Sync failed" },
   pending: { icon: CloudUpload, label: "Waiting to sync" },
   synced: { icon: CloudCheck, label: "Synced" },
+  unsynced: { icon: Cloud, label: "Not synced" },
 };
 
 interface MatchDetailProps {
@@ -134,7 +136,7 @@ export function MatchList({ destinations, matches, playerName, sync }: MatchList
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => setPendingDelete(match)} variant="destructive">
-          Delete…
+          Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -211,7 +213,10 @@ export function MatchList({ destinations, matches, playerName, sync }: MatchList
                 onClick={() => setSelected(row.fileName)}
                 variant="ghost"
               >
-                <RowContent row={row} sync={matchSyncState(sync, row.fileName, destinations)} />
+                <RowContent row={row} />
+                {matchSyncs(sync, row.fileName, destinations).map((s) => (
+                  <RowSyncIcon key={s.destination.id} label={syncLabel(s)} state={s.state} />
+                ))}
               </Button>
               {actions(match)}
             </li>
@@ -225,8 +230,7 @@ export function MatchList({ destinations, matches, playerName, sync }: MatchList
 
 function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchDetailProps) {
   const [showRaw, setShowRaw] = useState(false);
-  const names = new Map(destinations.map((d) => [d.id, d.name]));
-  const deliveries = deliveriesFor(sync, row.fileName, destinations);
+  const syncs = matchSyncs(sync, row.fileName, destinations);
   const summary = match.analysis?.summary;
   return (
     <div className="space-y-3 p-4">
@@ -237,7 +241,7 @@ function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchD
         {actions}
       </div>
       <div className="flex items-center gap-3">
-        <RowContent row={row} sync={null} />
+        <RowContent row={row} />
       </div>
       {summary === undefined ? (
         <p className="text-sm text-muted-foreground">This Battle Log couldn't be summarized.</p>
@@ -253,15 +257,15 @@ function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchD
           <dd className="text-foreground">{summary.turnCount}</dd>
         </dl>
       )}
-      {deliveries.length > 0 ? (
+      {syncs.length > 0 ? (
         <ul aria-label="Sync" className="space-y-1 text-sm">
-          {deliveries.map((delivery) => (
-            <li className="flex items-start gap-2" key={delivery.destination}>
-              <SyncIcon decorative state={delivery.state} />
+          {syncs.map((s) => (
+            <li className="flex items-start gap-2" key={s.destination.id}>
+              <SyncIcon state={s.state} />
               <span className="min-w-0">
-                {names.get(delivery.destination)}: {SYNC_LOOK[delivery.state].label.toLowerCase()}
-                {delivery.state !== "synced" && delivery.lastError !== null ? (
-                  <span className="block text-xs text-muted-foreground">{delivery.lastError}</span>
+                {syncLabel(s)}
+                {s.state !== "synced" && s.lastError !== null ? (
+                  <span className="block text-xs text-muted-foreground">{s.lastError}</span>
                 ) : null}
               </span>
             </li>
@@ -280,7 +284,7 @@ function MatchDetail({ actions, destinations, match, onBack, row, sync }: MatchD
   );
 }
 
-function RowContent({ row, sync }: { row: MatchRow; sync: null | SyncState }) {
+function RowContent({ row }: { row: MatchRow }) {
   return (
     <>
       <Badge className="w-7 shrink-0 justify-center" variant={row.result === null ? "outline" : RESULT_VARIANT[row.result]}>
@@ -292,14 +296,30 @@ function RowContent({ row, sync }: { row: MatchRow; sync: null | SyncState }) {
           {row.prizes === null ? row.when : `Prizes ${row.prizes} · ${row.when}`}
         </span>
       </span>
-      {sync === null ? null : <SyncIcon state={sync} />}
     </>
   );
 }
 
-/** `decorative` when text beside it already says the state. */
-function SyncIcon({ decorative = false, state }: { decorative?: boolean; state: SyncState }) {
-  const { icon: Icon, label } = SYNC_LOOK[state];
+function RowSyncIcon({ label, state }: { label: string; state: MatchSyncState }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="shrink-0">
+          <SyncIcon label={label} state={state} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Pass `label` unless text beside it already says the state. */
+function SyncIcon({ label, state }: { label?: string; state: MatchSyncState }) {
+  const { icon: Icon } = SYNC_LOOK[state];
   const className = cn("size-4 shrink-0", state === "failed" ? "text-destructive" : "text-muted-foreground");
-  return decorative ? <Icon aria-hidden className={className} /> : <Icon aria-label={label} className={className} role="img" />;
+  return label === undefined ? <Icon aria-hidden className={className} /> : <Icon aria-label={label} className={className} role="img" />;
+}
+
+function syncLabel({ destination, state }: MatchSync): string {
+  return `${destination.name}: ${SYNC_LOOK[state].label.toLowerCase()}`;
 }

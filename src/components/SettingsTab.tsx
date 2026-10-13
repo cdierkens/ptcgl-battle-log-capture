@@ -85,7 +85,7 @@ export function SettingsTab({ settings, sync }: { settings: SettingsView; sync: 
         <p className="break-all font-mono text-xs text-muted-foreground">{current.output_dir}</p>
         <div className="flex gap-2 pt-1">
           <LoadingButton loading={picking} onClick={pickFolder} size="sm" variant="outline">
-            Change…
+            Change
           </LoadingButton>
           <Button onClick={showFolder} size="sm" variant="ghost">
             Show in Finder

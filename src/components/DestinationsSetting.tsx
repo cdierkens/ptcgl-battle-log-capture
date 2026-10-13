@@ -109,7 +109,7 @@ export function DestinationsSetting({ settings, sync }: { settings: SettingsView
             <span className="text-xs font-normal text-muted-foreground">{hostOf(destination.url)}</span>
           </FieldLabel>
           <Button disabled={busy} onClick={() => setPendingRemove(destination)} size="sm" variant="ghost">
-            Remove…
+            Remove
           </Button>
         </div>
         {reason === null ? null : (
@@ -122,7 +122,7 @@ export function DestinationsSetting({ settings, sync }: { settings: SettingsView
       {step.type === "idle" ? (
         <div className="pt-1">
           <Button onClick={() => setStep({ config: "", type: "pasting" })} size="sm" variant="outline">
-            Paste config…
+            Paste config
           </Button>
         </div>
       ) : null}
@@ -134,7 +134,7 @@ export function DestinationsSetting({ settings, sync }: { settings: SettingsView
             autoFocus
             className="h-24 font-mono text-xs"
             onChange={(event) => setStep({ config: event.target.value, type: "pasting" })}
-            placeholder='{"ptcglTrackerDestination": 1, …}'
+            placeholder='{"ptcglTrackerDestination": 1}'
             value={step.config}
           />
           <div className="flex gap-2">
@@ -280,7 +280,7 @@ function NeedsAttention({ busy, destination, onError, reason, run }: NeedsAttent
       actions={
         <>
           <Button disabled={busy} onClick={() => setToken("")} size="sm" variant="outline">
-            Paste token…
+            Paste token
           </Button>
           <Button disabled={busy} onClick={() => run(() => retryDestination(destination.id))} size="sm" variant="ghost">
             Retry sync

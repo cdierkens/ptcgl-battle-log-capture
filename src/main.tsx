@@ -3,6 +3,7 @@ import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import "./styles/globals.css";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { followSystemColorScheme } from "./lib/color-scheme";
 import { MainWindow } from "./MainWindow";
 import { CaptureDrawer } from "./overlay/CaptureDrawer";
@@ -33,4 +34,8 @@ if (rootEl === null) {
   throw new Error("#root element not found");
 }
 
-createRoot(rootEl).render(<StrictMode>{rootFor(label)}</StrictMode>);
+createRoot(rootEl).render(
+  <StrictMode>
+    <TooltipProvider>{rootFor(label)}</TooltipProvider>
+  </StrictMode>,
+);
