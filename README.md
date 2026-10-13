@@ -80,8 +80,8 @@ release (~25–80 ms). Measured after the BMP encoder landed (2560x1496 capture)
 | encode a 512x150 region | 2.21 ms | 0.12 ms |
 | region OCR | 34.1 ms | 69.5 ms |
 
-Only the encoder is meaningfully profile-sensitive, and in release it costs
-0.12 ms, about 2 ms per poll. The OCR is macOS Vision (native) and doesn't speed
+Of our own code, only the encoder is meaningfully profile-sensitive, and in
+release it costs 0.12 ms, about 2 ms per poll. The OCR is macOS Vision (native) and doesn't speed
 up with optimisation. Its per-call cost is large and varies with what's on
 screen, so debug and release land within each other's noise.
 
