@@ -19,7 +19,7 @@ use objc2_vision::{
 use windows::{
     Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap},
     Media::Ocr::OcrEngine,
-    Storage::Streams::{Buffer, DataReader},
+    Storage::Streams::{Buffer, DataWriter},
 };
 
 #[cfg(target_os = "macos")]
@@ -195,7 +195,7 @@ impl WindowsOcrRecognizer {
             Err(_) => return Vec::new(),
         };
 
-        let lines = match result.Lines() {
+        let lines = match result.GetLines() {
             Ok(l) => l,
             Err(_) => return Vec::new(),
         };
@@ -210,7 +210,7 @@ impl WindowsOcrRecognizer {
                 Ok(l) => l,
                 Err(_) => continue,
             };
-            let text = match line.Text() {
+            let text = match line.GetText() {
                 Ok(t) => t.to_string(),
                 Err(_) => continue,
             };
@@ -223,7 +223,7 @@ impl WindowsOcrRecognizer {
                 continue;
             }
 
-            let rect = match line.BoundingRect() {
+            let rect = match line.GetBoundingRect() {
                 Ok(r) => r,
                 Err(_) => continue,
             };
@@ -260,9 +260,13 @@ fn frame_to_software_bitmap(frame: &Frame) -> windows::core::Result<SoftwareBitm
         bgra.push(chunk[3]); // A
     }
 
+    // Use SoftwareBitmap::CreateCopyFromBuffer with a buffer created from raw bytes
+    // to avoid DataReader/Buffer version conflicts
+    use windows::Storage::Streams::{Buffer, DataWriter, IBuffer};
+    
     let buffer = Buffer::Create(bgra.len() as u32)?;
     {
-        let data_writer = DataReader::CreateDataReader(&buffer)?;
+        let data_writer = DataWriter::CreateDataWriter(&buffer)?;
         data_writer.WriteBytes(&bgra)?;
         data_writer.DetachBuffer()?;
     }
