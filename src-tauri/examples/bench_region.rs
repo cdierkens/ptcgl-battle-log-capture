@@ -1,13 +1,26 @@
 // Compare: full-frame OCR vs OCR on just the region where the Battle Log tab
 // sits on the results screen (fixed-size window => fixed position).
+// macOS only: benchmarks Vision framework performance.
+#[cfg(target_os = "macos")]
 use ptcgl_battle_log_capture_lib::bmp::encode_bmp;
+#[cfg(target_os = "macos")]
 use ptcgl_battle_log_capture_lib::buttons::battle_log_needles;
+#[cfg(target_os = "macos")]
 use ptcgl_battle_log_capture_lib::platform::frame::XcapFrameCapturer;
+#[cfg(target_os = "macos")]
 use ptcgl_battle_log_capture_lib::platform::ocr::VisionTextRecognizer;
+#[cfg(target_os = "macos")]
 use ptcgl_battle_log_capture_lib::platform::window::XcapWindowProvider;
+#[cfg(target_os = "macos")]
 use ptcgl_battle_log_capture_lib::ports::{Frame, FrameCapturer, TextRecognizer, WindowProvider};
 use std::time::Instant;
 
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    println!("This benchmark runs on macOS only (Vision framework).");
+}
+
+#[cfg(target_os = "macos")]
 fn crop(f: &Frame, x0: f32, y0: f32, x1: f32, y1: f32) -> Frame {
     let fx = |v: f32, max: u32| ((v * max as f32).round() as i32).clamp(0, max as i32) as u32;
     let x0 = fx(x0, f.width);
@@ -25,6 +38,7 @@ fn crop(f: &Frame, x0: f32, y0: f32, x1: f32, y1: f32) -> Frame {
     Frame { width: w, height: h, rgba }
 }
 
+#[cfg(target_os = "macos")]
 /// Median of 5 OCR calls, in milliseconds.
 fn median_ms(ocr: &VisionTextRecognizer, frame: &Frame, needles: &[String]) -> f64 {
     let mut t = vec![];
@@ -37,6 +51,7 @@ fn median_ms(ocr: &VisionTextRecognizer, frame: &Frame, needles: &[String]) -> f
     t[2]
 }
 
+#[cfg(target_os = "macos")]
 /// Median of 5 encodes, in milliseconds. Isolates our own cost from Vision's,
 /// which varies with on-screen content and so is not comparable across runs.
 fn median_encode_ms(frame: &Frame) -> f64 {
@@ -51,6 +66,7 @@ fn median_encode_ms(frame: &Frame) -> f64 {
     t[2]
 }
 
+#[cfg(target_os = "macos")]
 fn main() {
     let wp = XcapWindowProvider::new("pokemon");
     let Some(window) = wp.find_game_window() else {

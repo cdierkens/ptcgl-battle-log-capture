@@ -18,7 +18,7 @@ use crate::overlay_geometry::{shield_rect, ScreenRect};
 use crate::overlay_state::{transition, OverlayEvent, OverlayState, ShieldStatus};
 use crate::platform::clipboard::SystemClipboard;
 use crate::platform::focus::WorkspaceFocusProbe;
-use crate::platform::ocr::VisionTextRecognizer;
+use crate::platform::ocr::PlatformTextRecognizer;
 use crate::platform::permission::ScreenRecordingAccess;
 use crate::platform::window::XcapGame;
 use crate::ports::{FrameCapturer, OverlayPresenter, ScreenCaptureAccess, TextRecognizer, WindowInfo, WindowProvider};
@@ -327,7 +327,7 @@ pub fn run(
     sink: Arc<dyn LogSink>,
 ) {
     let game = XcapGame::new(crate::title::GAME_TITLE_HINT);
-    let recognizer = VisionTextRecognizer;
+    let recognizer = PlatformTextRecognizer;
     let probe = OcrResultsProbe::new(recognizer);
     let focus = WorkspaceFocusProbe;
     let clipboard = SystemClipboard;

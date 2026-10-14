@@ -63,6 +63,9 @@ pub struct Worker {
     pub app_version: String,
     /// Called after a tick that recorded a send's outcome.
     pub on_change: SyncChanged,
+    /// In-memory token cache: avoids hitting the keychain every tick.
+    /// Invalidated when a destination is updated/removed or token is explicitly cleared.
+    pub token_cache: Arc<std::sync::RwLock<HashMap<String, Option<String>>>>,
 }
 
 impl Worker {
@@ -116,13 +119,28 @@ impl Worker {
         let settings = settings::current(&self.settings);
         let Some(destination) = settings.destinations.iter().find(|d| d.id == dest_id) else {
             log_err(queue().remove_destination(dest_id));
+            self.invalidate_token(dest_id);
             return None;
         };
         if !destination.enabled {
             return None;
         }
-        let token =
-            tokens.entry(dest_id.to_string()).or_insert_with(|| self.secrets.get(dest_id).map_err(|e| e.to_string()));
+        let token = tokens.entry(dest_id.to_string()).or_insert_with(|| {
+            // Try cache first
+            if let Ok(cache) = self.token_cache.read() {
+                if let Some(cached) = cache.get(dest_id) {
+                    return Ok(cached.clone());
+                }
+            }
+            // Fall back to keychain
+            let result = self.secrets.get(dest_id).map_err(|e| e.to_string());
+            // Update cache
+            if let Ok(mut cache) = self.token_cache.write() {
+                let cached = result.as_ref().ok().cloned().flatten();
+                cache.insert(dest_id.to_string(), cached);
+            }
+            result
+        });
         let outcome = match token {
             Ok(Some(token)) => self.send(&settings, destination, token, log)?,
             Ok(None) => Outcome::NeedsAttention("No token is saved for this destination.".into()),
@@ -136,6 +154,13 @@ impl Worker {
             Outcome::Failed(e) => q.mark_failed(log, dest_id, e),
         });
         Some(outcome)
+    }
+
+    /// Invalidates a cached token (call when destination is updated/removed).
+    fn invalidate_token(&self, dest_id: &str) {
+        if let Ok(mut cache) = self.token_cache.write() {
+            cache.remove(dest_id);
+        }
     }
 
     /// `None` when the saved log was deleted: its deliveries are dropped, nothing is sent.
@@ -258,6 +283,7 @@ mod tests {
                 results_up: Box::new(move || up.load(Ordering::SeqCst)),
                 app_version: "1.2.3".into(),
                 on_change: Box::new(|| {}),
+                token_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
             };
             Self { worker, transport, results_up, dir }
         }

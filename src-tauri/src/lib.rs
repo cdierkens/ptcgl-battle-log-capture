@@ -32,9 +32,9 @@ pub fn run() {
 
     use crate::delivery_queue::SharedQueue;
     use crate::overlay_state::OverlayState;
-    use crate::platform::keychain::KeychainSecretStore;
     use crate::platform::overlay::TauriOverlayPresenter;
     use crate::platform::permission::ScreenRecordingAccess;
+    use crate::platform::secret_store::FileSecretStore;
     use crate::platform::store::FsLogStore;
     use crate::ports::{OverlayPresenter, ScreenCaptureAccess, SecretStore};
     use crate::settings::{SettingsPaths, SharedSettings};
@@ -97,7 +97,8 @@ pub fn run() {
             let shared: SharedSettings = Arc::new(RwLock::new(paths.load()));
             app.manage(paths);
             app.manage(shared.clone());
-            let secrets: Arc<dyn SecretStore> = Arc::new(KeychainSecretStore::new(&app.config().identifier));
+            let config_dir = app.path().app_config_dir()?;
+            let secrets: Arc<dyn SecretStore> = Arc::new(FileSecretStore::new(&config_dir, &app.config().identifier)?);
             app.manage(secrets.clone());
             let queue: SharedQueue = Arc::new(Mutex::new(open_queue(app.handle())?));
             app.manage(queue.clone());
@@ -146,6 +147,8 @@ fn spawn_sync_worker(
     secrets: std::sync::Arc<dyn ports::SecretStore>,
     results_up: sink::ResultsUp,
 ) {
+    use std::collections::HashMap;
+    use std::sync::Arc;
     let app_version = app.package_info().version.to_string();
     let app = app.clone();
     std::thread::spawn(move || {
@@ -155,7 +158,9 @@ fn spawn_sync_worker(
         };
         let on_change = sync_changed(&app);
         let transport = Box::new(transport);
-        sync_worker::Worker { queue, settings, secrets, transport, results_up, app_version, on_change }.run()
+        let token_cache = Arc::new(std::sync::RwLock::new(HashMap::new()));
+        sync_worker::Worker { queue, settings, secrets, transport, results_up, app_version, on_change, token_cache }
+            .run()
     });
 }
 

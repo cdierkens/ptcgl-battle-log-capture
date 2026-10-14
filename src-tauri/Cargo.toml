@@ -29,6 +29,10 @@ tauri-plugin-dialog = "2"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 reqwest = { version = "0.13.5", features = ["blocking"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+zeroize = "1.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
@@ -37,7 +41,20 @@ objc2-foundation = "0.3.2"
 objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSWindow", "NSWorkspace"] }
-keyring = { version = "3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "AI_MachineLearning",
+    "Media_Ocr",
+    "Graphics_Capture",
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+] }
+
+[dev-dependencies]
+tempfile = "3"
 
 # xcap copies and swizzles each frame per pixel; unoptimised that makes dev polls ~10x slower.
 # Only the hot crates: optimising every dependency made CI ~8x slower.
