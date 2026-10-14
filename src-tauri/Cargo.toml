@@ -47,6 +47,8 @@ windows = { version = "0.58", features = [
     "AI_MachineLearning",
     "Media_Ocr",
     "Graphics_Capture",
+    "Graphics_Imaging",
+    "Storage_Streams",
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Direct3D11",

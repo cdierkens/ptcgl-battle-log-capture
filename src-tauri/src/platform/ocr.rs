@@ -18,9 +18,8 @@ use objc2_vision::{
 #[cfg(target_os = "windows")]
 use windows::{
     Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap},
-    Media::Ocr::{OcrEngine, OcrLanguage},
-    Storage::Streams::{Buffer, DataReader, InputStreamOptions},
-    AI::MachineLearning::LearningModel,
+    Media::Ocr::OcrEngine,
+    Storage::Streams::{Buffer, DataReader},
 };
 
 #[cfg(target_os = "macos")]
@@ -183,7 +182,7 @@ impl WindowsOcrRecognizer {
             Err(_) => return Vec::new(),
         };
 
-        let engine = match OcrEngine::TryCreateFromLanguage(OcrLanguage::English()) {
+        let engine = match OcrEngine::TryCreateFromUserProfileLanguages() {
             Ok(e) => e,
             Err(_) => return Vec::new(),
         };
