@@ -81,6 +81,17 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+      # Testable Windows binary while the port is in progress.
+      - name: cargo build --release
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: ptcgl-tracker-windows-${{ github.sha }}
+          path: src-tauri/target/release/ptcgl-battle-log-capture.exe
+          retention-days: 14
+
   # One stable status check for branch protection.
   ci-ok:
     runs-on: ubuntu-latest
