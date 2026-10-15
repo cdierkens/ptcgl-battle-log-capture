@@ -7,6 +7,11 @@ edition = "2021"
 name = "ptcgl_battle_log_capture_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Production builds embed ../dist and skip devUrl. `tauri build` turns this on;
+# a bare `cargo build --release` must pass it explicitly.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

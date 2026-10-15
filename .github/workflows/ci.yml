@@ -82,9 +82,10 @@ jobs:
         run: cargo test
 
       # Testable Windows binary while the port is in progress.
+      # custom-protocol embeds dist/; without it the app looks for localhost:5173.
       - name: cargo build --release
         working-directory: src-tauri
-        run: cargo build --release
+        run: cargo build --release --features custom-protocol
 
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
