@@ -85,26 +85,18 @@ pub fn run() {
         })
         .setup(|app| {
             let paths = SettingsPaths::resolve(app.handle())?;
+            let first_run = !paths.exists();
             let guard = logging::init(&paths.log_folder.join("logs"));
             app.manage(guard);
-            let state_cell = Arc::new(Mutex::new(OverlayState::NoWindow));
-            app.manage(state_cell.clone());
-            let presenter: Arc<dyn OverlayPresenter> = Arc::new(TauriOverlayPresenter::new(app.handle())?);
-            app.manage(presenter.clone());
-            // Register every state before showing a window: showing one loads the webview,
-            // which invokes commands on another thread and would race an unmanage()d state.
-            let first_run = !paths.exists();
-            let shared: SharedSettings = Arc::new(RwLock::new(paths.load()));
-            app.manage(paths);
-            app.manage(shared.clone());
-            if first_run || !ScreenRecordingAccess.is_authorized() {
-                show_main(app.handle());
-            }
+
+            // Manage every command's state *before* creating any window. Building the overlay
+            // windows loads their webview, which invokes `is_first_run` on another thread while
+            // setup is still running, so anything managed later reads as unmanaged.
             let config_dir = app.path().app_config_dir()?;
+            let state_cell = Arc::new(Mutex::new(OverlayState::NoWindow));
+            let shared: SharedSettings = Arc::new(RwLock::new(paths.load()));
             let secrets: Arc<dyn SecretStore> = Arc::new(FileSecretStore::new(&config_dir, &app.config().identifier)?);
-            app.manage(secrets.clone());
             let queue: SharedQueue = Arc::new(Mutex::new(open_queue(app.handle())?));
-            app.manage(queue.clone());
             let sink: Arc<dyn LogSink> = Arc::new(SyncingLogSink::new(
                 StoreLogSink::new(FsLogStore::new(shared.clone())),
                 shared.clone(),
@@ -112,10 +104,23 @@ pub fn run() {
                 results_up(state_cell.clone()),
                 sync_changed(app.handle()),
             ));
-            app.manage(sink.clone());
-            spawn_sync_worker(app.handle(), queue, shared.clone(), secrets, results_up(state_cell.clone()));
             let (events, inbox) = mpsc::channel();
+
+            app.manage(paths);
+            app.manage(state_cell.clone());
+            app.manage(shared.clone());
+            app.manage(secrets.clone());
+            app.manage(queue.clone());
+            app.manage(sink.clone());
             app.manage(events);
+
+            // Now that every command can find its state, build the windows.
+            let presenter: Arc<dyn OverlayPresenter> = Arc::new(TauriOverlayPresenter::new(app.handle())?);
+            app.manage(presenter.clone());
+            if first_run || !ScreenRecordingAccess.is_authorized() {
+                show_main(app.handle());
+            }
+            spawn_sync_worker(app.handle(), queue, shared.clone(), secrets, results_up(state_cell.clone()));
             let handle = app.handle().clone();
             std::thread::spawn(move || engine::run(handle, state_cell, presenter, inbox, shared, sink));
             Ok(())

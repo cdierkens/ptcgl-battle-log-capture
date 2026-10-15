@@ -5,3 +5,4 @@ src-tauri/target/
 src-tauri/gen/
 .envrc.local
 .DS_Store
+*.utm/
