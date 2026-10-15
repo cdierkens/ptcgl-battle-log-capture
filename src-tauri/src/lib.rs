@@ -91,12 +91,15 @@ pub fn run() {
             app.manage(state_cell.clone());
             let presenter: Arc<dyn OverlayPresenter> = Arc::new(TauriOverlayPresenter::new(app.handle())?);
             app.manage(presenter.clone());
-            if !paths.exists() || !ScreenRecordingAccess.is_authorized() {
-                show_main(app.handle());
-            }
+            // Register every state before showing a window: showing one loads the webview,
+            // which invokes commands on another thread and would race an unmanage()d state.
+            let first_run = !paths.exists();
             let shared: SharedSettings = Arc::new(RwLock::new(paths.load()));
             app.manage(paths);
             app.manage(shared.clone());
+            if first_run || !ScreenRecordingAccess.is_authorized() {
+                show_main(app.handle());
+            }
             let config_dir = app.path().app_config_dir()?;
             let secrets: Arc<dyn SecretStore> = Arc::new(FileSecretStore::new(&config_dir, &app.config().identifier)?);
             app.manage(secrets.clone());
