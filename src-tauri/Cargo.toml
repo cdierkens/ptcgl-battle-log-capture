@@ -30,7 +30,7 @@ unicode-normalization = "0.1"
 trash = "5"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "native-tls", "charset", "http2", "system-proxy"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 aes-gcm = "0.11"
